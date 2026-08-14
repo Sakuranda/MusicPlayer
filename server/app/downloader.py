@@ -4,6 +4,7 @@
 数据中心 IP 易触发 B 站 412，策略：注入真实 buvid 指纹 Cookie + 自动重试。
 """
 import re
+import shutil
 import time
 from pathlib import Path
 
@@ -251,7 +252,8 @@ def tag_and_store(
     album_dir.mkdir(parents=True, exist_ok=True)
     filename = _safe(f"{artist} - {title}")
     final = album_dir / f"{filename} [{bvid}].m4a"
-    src.replace(final)
+    # shutil.move 支持跨文件系统（/tmp 与 /data 可能不在同一挂载点）
+    shutil.move(str(src), str(final))
     return str(final.relative_to(MUSIC_DIR))
 
 
