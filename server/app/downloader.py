@@ -52,29 +52,39 @@ def download_audio(bvid: str, cookie_file: Path | None = None, progress_hook=Non
         cookie = _cookie_str_from_netscape(cookie)
 
     # 1) 直连 DASH（JSON API 路线，服务器 IP 已被验证可用）
+    #    限流/风控类错误逐步拉长等待时间再重试
     last_err: Exception | None = None
-    for attempt in range(2):
+    _retry_sleeps = (4, 12, 25)
+    for attempt, wait in enumerate(_retry_sleeps):
         try:
             return _direct_dash(bvid, cookie, tmp)
         except Exception as e:  # noqa: BLE001
             last_err = e
-            time.sleep(3 * (attempt + 1))
+            if not _transient(e):
+                break  # 不是限流问题，直接走 yt-dlp 回退
+            time.sleep(wait)
 
     # 2) 回退 yt-dlp（网页路线，带指纹 Cookie，应对 412）
     import yt_dlp
     from yt_dlp.utils import DownloadError
 
-    for attempt in range(2):
+    for attempt, wait in enumerate((8, 20)):
         try:
             return _ytdlp_download(bvid, cookie_file, progress_hook, tmp, attempt)
         except DownloadError as e:
             last_err = e
-            time.sleep(8 * (attempt + 1))
+            time.sleep(wait)
         except Exception as e:  # noqa: BLE001
             last_err = e
-            time.sleep(8 * (attempt + 1))
+            time.sleep(wait)
 
     raise RuntimeError(f"下载失败（B 站风控，两条路线均已重试）: {last_err}")
+
+
+def _transient(e: Exception) -> bool:
+    """判断是否为 B 站限流/风控类瞬时错误（值得等待重试）。"""
+    s = str(e)
+    return any(k in s for k in ("bad parameter", "-412", "412", "请求", "risk", "限流", "风控", "timeout", "timed out"))
 
 
 def _cookie_str_from_netscape(text: str) -> str | None:
