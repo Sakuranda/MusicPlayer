@@ -38,31 +38,21 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [duration, setDuration] = useState(0)
   const [volume, setVolumeState] = useState(0.8)
 
+  // 创建音频元素并绑定基础事件（只执行一次）
   useEffect(() => {
     const a = new Audio()
     a.preload = 'metadata'
+    a.volume = 0.8
     audioRef.current = a
     const onTime = () => setTime(a.currentTime)
     const onDur = () => setDuration(a.duration || 0)
     const onPlay = () => setPlaying(true)
     const onPause = () => setPlaying(false)
-    const onEnded = () => setIndex((i) => {
-      if (queue.length === 0) return i
-      const n = (i + 1) % queue.length
-      const next = queue[n]
-      if (next) {
-        a.src = api.streamUrl(next.id)
-        setCurrent(next)
-        a.play().catch(() => {})
-      }
-      return n
-    })
     const onError = () => setPlaying(false)
     a.addEventListener('timeupdate', onTime)
     a.addEventListener('durationchange', onDur)
     a.addEventListener('play', onPlay)
     a.addEventListener('pause', onPause)
-    a.addEventListener('ended', onEnded)
     a.addEventListener('error', onError)
     return () => {
       a.pause()
@@ -70,22 +60,39 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       a.removeEventListener('durationchange', onDur)
       a.removeEventListener('play', onPlay)
       a.removeEventListener('pause', onPause)
-      a.removeEventListener('ended', onEnded)
       a.removeEventListener('error', onError)
       a.src = ''
+      audioRef.current = null
     }
-  }, [queue])
+  }, [])
 
   const start = useCallback((song: Song, songs: Song[], i: number) => {
+    const a = audioRef.current
+    if (!a) return
     setQueue(songs)
     setIndex(i)
     setCurrent(song)
     setTime(0)
-    const a = audioRef.current
-    if (!a) return
+    setDuration(song.duration || 0)
     a.src = api.streamUrl(song.id)
     a.play().catch(() => setPlaying(false))
   }, [])
+
+  // 播放结束自动切下一首（依赖 queue/index 重新绑定）
+  useEffect(() => {
+    const a = audioRef.current
+    if (!a) return
+    const onEnded = () => {
+      if (queue.length === 0) {
+        setPlaying(false)
+        return
+      }
+      const n = (index + 1) % queue.length
+      start(queue[n], queue, n)
+    }
+    a.addEventListener('ended', onEnded)
+    return () => a.removeEventListener('ended', onEnded)
+  }, [queue, index, start])
 
   const playSong = useCallback((song: Song, songs?: Song[]) => {
     const a = audioRef.current
@@ -96,7 +103,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       return
     }
     const q = songs && songs.length ? songs : queue.length ? queue : [song]
-    start(song, q, Math.max(0, q.findIndex((s) => s.id === song.id)))
+    const i = Math.max(0, q.findIndex((s) => s.id === song.id))
+    start(song, q, i)
   }, [current, queue, start])
 
   const playQueue = useCallback((songs: Song[], i = 0) => {
@@ -113,8 +121,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const next = useCallback(() => {
     if (!queue.length) return
-    const n = (index + 1) % queue.length
-    start(queue[n], queue, n)
+    start(queue[(index + 1) % queue.length], queue, (index + 1) % queue.length)
   }, [queue, index, start])
 
   const prev = useCallback(() => {
@@ -122,6 +129,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (!queue.length) return
     if (a && a.currentTime > 3) {
       a.currentTime = 0
+      setTime(0)
       return
     }
     const n = (index - 1 + queue.length) % queue.length
