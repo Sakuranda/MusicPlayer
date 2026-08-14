@@ -97,6 +97,12 @@ def fetch_favorites(media_id: str, cookie: Optional[str] = None, page_size: int 
             if pn == 1:
                 msg = data.get("message", "未知错误")
                 code = data.get("code")
+                if code == 0:
+                    raise BiliError(
+                        "B 站返回空数据：该收藏夹大概率是私密的。请在导入页展开「粘贴 B 站 Cookie」"
+                        "填入浏览器 Cookie 后重试（获取方法：B 站任意页面按 F12 → 网络 → 刷新页面 →"
+                        "点任意 api.bilibili.com 请求 → 复制请求头里的 Cookie）"
+                    )
                 if code in (-403, -101):
                     raise BiliError("该收藏夹为私密或不存在，请检查链接，或在导入时粘贴你的 B 站 Cookie")
                 raise BiliError(f"获取收藏夹失败: {msg} (code={code})")
