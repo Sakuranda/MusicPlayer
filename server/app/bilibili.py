@@ -14,6 +14,7 @@ from .config import BILI_HEADERS
 FAV_API = "https://api.bilibili.com/x/v3/fav/resource/list"
 VIEW_API = "https://api.bilibili.com/x/web-interface/view"
 TAGS_API = "https://api.bilibili.com/x/tag/archive/tags"
+SPI_API = "https://api.bilibili.com/x/frontend/finger/spi"
 
 # 简单全局限速：避免持续高频请求触发 412 反爬
 _rate_lock = threading.Lock()
@@ -101,6 +102,26 @@ def fetch_favorites(media_id: str, cookie: Optional[str] = None, page_size: int 
         pn += 1
         time.sleep(0.3)
     return info.get("title", "B站收藏夹"), items
+
+
+def fetch_buvid() -> dict[str, str]:
+    """获取 B 站设备指纹 Cookie（buvid3/buvid4）。
+
+    数据中心 IP 下载时 B 站常要求指纹 Cookie，否则 412。
+    """
+    try:
+        _throttle()
+        with _client() as client:
+            r = client.get(SPI_API)
+            d = (r.json().get("data") or {}) if r.status_code == 200 else {}
+        out = {}
+        if d.get("b_3"):
+            out["buvid3"] = d["b_3"]
+        if d.get("b_4"):
+            out["buvid4"] = d["b_4"]
+        return out
+    except Exception:
+        return {}
 
 
 def fetch_tags(bvid: str, cookie: Optional[str] = None) -> list[str]:

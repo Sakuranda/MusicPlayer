@@ -1,14 +1,17 @@
 """音频下载（yt-dlp）与元数据写入（mutagen）。
 
-流程：yt-dlp 抽音频(m4a) → 嵌入 标题/歌手/专辑/封面 → 移入曲库目录。
+流程：yt-dlp 抽音频(m4a) → 嵌入 标题/歌手/专辑/封面/歌词 → 移入曲库目录。
+数据中心 IP 易触发 B 站 412，策略：注入真实 buvid 指纹 Cookie + 自动重试。
 """
 import re
+import time
 from pathlib import Path
 
 import httpx
 import mutagen
 from mutagen.mp4 import MP4, MP4Cover
 
+from . import bilibili
 from .config import COVER_DIR, MUSIC_DIR, BILI_HEADERS
 
 
@@ -34,12 +37,37 @@ def write_cookie_file(cookie_str: str, path: Path) -> Path:
 def download_audio(bvid: str, cookie_file: Path | None = None, progress_hook=None) -> dict:
     """下载视频音频，返回 {file: 临时文件, duration: 秒, cover: 图片字节或 None}。
 
-    cookie_file 为 None 时用环境变量 BILIBILI_COOKIE（若设置了）。
+    412 风控时自动换新指纹并重试最多 3 次。
     """
     import yt_dlp
+    from yt_dlp.utils import DownloadError
 
     tmp = Path("/tmp") / f"ytdl-{bvid}"
     tmp.mkdir(exist_ok=True)
+
+    last_err: Exception | None = None
+    for attempt in range(3):
+        try:
+            return _download_once(bvid, cookie_file, progress_hook, tmp, attempt)
+        except DownloadError as e:
+            last_err = e
+            if "412" not in str(e):
+                raise
+            wait = 8 * (attempt + 1)
+            time.sleep(wait)  # 等风控窗口过去，下一轮会换新指纹
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+            if "412" not in str(e):
+                raise
+            time.sleep(8 * (attempt + 1))
+    raise RuntimeError(f"下载失败（412 风控，已重试 3 次）: {last_err}")
+
+
+def _download_once(bvid: str, cookie_file: Path | None, progress_hook, tmp: Path, attempt: int) -> dict:
+    import yt_dlp
+
+    # 合并用户 Cookie + 每次全新获取的 buvid 指纹（应对数据中心 IP 风控）
+    merged = _merged_cookie_file(cookie_file, tmp, attempt)
 
     ydl_opts = {
         "format": "bestaudio/best",
@@ -66,8 +94,8 @@ def download_audio(bvid: str, cookie_file: Path | None = None, progress_hook=Non
             "Referer": "https://www.bilibili.com/",
         },
     }
-    if cookie_file and cookie_file.exists():
-        ydl_opts["cookiefile"] = str(cookie_file)
+    if merged:
+        ydl_opts["cookiefile"] = str(merged)
     if progress_hook:
         ydl_opts["progress_hooks"] = [progress_hook]
 
@@ -90,6 +118,23 @@ def download_audio(bvid: str, cookie_file: Path | None = None, progress_hook=Non
             except Exception:
                 cover = None
         return {"file": m4a, "duration": float(info.get("duration") or 0), "cover": cover}
+
+
+def _merged_cookie_file(cookie_file: Path | None, tmp: Path, attempt: int) -> Path | None:
+    """用户 Cookie（若有）与 buvid 指纹合并为 Netscape 格式 Cookie 文件。"""
+    buvids = bilibili.fetch_buvid()
+    if cookie_file and cookie_file.exists():
+        user_lines = cookie_file.read_text(encoding="utf-8", errors="ignore").splitlines()
+    else:
+        user_lines = []
+    lines = ["# Netscape HTTP Cookie File"] + user_lines
+    for k, v in buvids.items():
+        lines.append(f".bilibili.com\tTRUE\t/\tFALSE\t0\t{k}\t{v}")
+    if len(lines) == 1:
+        return None
+    p = tmp / f"cookies-{attempt}.txt"
+    p.write_text("\n".join(lines), encoding="utf-8")
+    return p
 
 
 def tag_and_store(
