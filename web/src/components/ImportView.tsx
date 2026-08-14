@@ -20,10 +20,13 @@ interface Props {
 
 type Step = 'input' | 'preview' | 'progress'
 
+const LS_COOKIE = 'mp_bili_cookie'
+
 export default function ImportView({ onImported, onViewLibrary }: Props) {
   const [step, setStep] = useState<Step>('input')
   const [url, setUrl] = useState('')
-  const [cookie, setCookie] = useState('')
+  // 私密收藏夹需要 Cookie；记住在本浏览器，方便反复导入
+  const [cookie, setCookie] = useState(() => localStorage.getItem(LS_COOKIE) || '')
   const [album, setAlbum] = useState('')
   const [showCookie, setShowCookie] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -52,6 +55,7 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
     }
     setLoading(true)
     try {
+      if (cookie.trim()) localStorage.setItem(LS_COOKIE, cookie.trim())
       const d = await api.createJob(url.trim(), cookie.trim(), album.trim())
       setDetail(d)
       setSelected(new Set(d.songs.map((s) => s.id)))
@@ -188,13 +192,31 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
                 收藏夹是私密的？粘贴 B 站 Cookie
               </button>
               {showCookie && (
-                <textarea
-                  value={cookie}
-                  onChange={(e) => setCookie(e.target.value)}
-                  rows={3}
-                  placeholder="SESSDATA=xxx; bili_jct=xxx; …（浏览器 F12 → 网络请求 → 复制 Cookie）"
-                  className="mt-2 w-full bg-bg2 border border-line rounded-xl px-3 py-3 text-xs font-mono placeholder:text-faint focus:outline-none focus:border-accent/60 transition-colors"
-                />
+                <>
+                  <textarea
+                    value={cookie}
+                    onChange={(e) => setCookie(e.target.value)}
+                    rows={3}
+                    placeholder="SESSDATA=xxx; bili_jct=xxx; …（浏览器 F12 → 网络请求 → 复制 Cookie）"
+                    className="mt-2 w-full bg-bg2 border border-line rounded-xl px-3 py-3 text-xs font-mono placeholder:text-faint focus:outline-none focus:border-accent/60 transition-colors"
+                  />
+                  <div className="flex items-center justify-between mt-1.5">
+                    <span className="text-[11px] text-faint">
+                      只保存在本浏览器，仅发送给你的服务器和 B 站；Cookie 过期后重新粘贴即可
+                    </span>
+                    {cookie && (
+                      <button
+                        onClick={() => {
+                          setCookie('')
+                          localStorage.removeItem(LS_COOKIE)
+                        }}
+                        className="text-[11px] text-muted hover:text-danger transition-colors"
+                      >
+                        清除已保存的 Cookie
+                      </button>
+                    )}
+                  </div>
+                </>
               )}
             </div>
 
