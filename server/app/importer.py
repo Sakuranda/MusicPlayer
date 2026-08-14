@@ -114,7 +114,7 @@ def start_download(job_id: str, bvids: list[str] | None = None):
     songs = list_songs(conn, job_id=job_id)
     if bvids:
         bv_set = set(bvids)
-        songs = [s for s in songs if s["bvid"] in b_set]
+        songs = [s for s in songs if s["bvid"] in bv_set]
         update_job(conn, job_id, total=len(songs), done=0, failed=0, message="")
     else:
         # 失败的重试，已就绪的跳过
