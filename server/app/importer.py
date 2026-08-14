@@ -135,7 +135,8 @@ def start_download(job_id: str, bvids: list[str] | None = None):
         cookie_file = None
 
     def worker(song):
-        return _download_one(conn, song, cookie_file)
+        # 每个线程用独立的数据库连接，避免并发提交事务互相冲突
+        return _download_one(get_conn(), song, cookie_file)
 
     def run():
         ok_count = 0
