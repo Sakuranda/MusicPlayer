@@ -36,12 +36,13 @@ class BiliError(Exception):
     pass
 
 
-def parse_fav_url(url: str) -> str:
-    """从收藏夹链接中提取 media_id。
+def parse_fav_url(url: str) -> list[str]:
+    """从收藏夹链接中提取候选 media_id 列表（依次尝试）。
 
     支持:
-    - https://space.bilibili.com/{mid}/favlist?fid={fid}
-      → media_id = int(f"{fid}{str(mid)[-2:]}")（fid + UP主 uid 后两位，已实测验证）
+    - https://space.bilibili.com/{mid}/favlist?fid={x}
+      不同版本网页的 fid 含义不同：有的 fid 就是 media_id，有的
+      media_id = fid + UP主 uid 后两位。两种候选都返回，哪个有数据用哪个。
     - https://www.bilibili.com/medialist/detail/ml{mid} → mid 即 media_id
     - https://b23.tv/xxxx（分享短链，自动跟随跳转）
     """
@@ -58,12 +59,19 @@ def parse_fav_url(url: str) -> str:
 
     m = re.search(r"medialist/detail/ml(\d+)", url)
     if m:
-        return m.group(1)
+        return [m.group(1)]
     m_mid = re.search(r"space\.bilibili\.com/(\d+)", url)
     m_fid = re.search(r"[?&]fid=(\d+)", url)
     if m_mid and m_fid:
         mid, fid = m_mid.group(1), m_fid.group(1)
-        return f"{fid}{mid[-2:]}"
+        candidates = [fid, f"{fid}{mid[-2:]}"]
+        # 去重保序
+        seen, out = set(), []
+        for c in candidates:
+            if c not in seen:
+                seen.add(c)
+                out.append(c)
+        return out
     if "favlist" in url and m_mid:
         raise BiliError(
             "链接里缺少收藏夹编号（fid）。请在 B 站打开【我的收藏】→ 点进那个收藏夹，"
@@ -81,52 +89,66 @@ def _client(cookie: Optional[str] = None) -> httpx.Client:
     return httpx.Client(headers=headers, timeout=30, follow_redirects=True)
 
 
-def fetch_favorites(media_id: str, cookie: Optional[str] = None, page_size: int = 20):
-    """分页拉取收藏夹全部视频，返回 (收藏夹标题, [视频信息...])。"""
+def fetch_favorites(media_ids, cookie: Optional[str] = None, page_size: int = 20):
+    """依次尝试候选 media_id，返回 (收藏夹标题, [视频信息...], 成功的 media_id)。
+
+    私密收藏夹带 Cookie 才能读到；未带 Cookie 时 B 站返回空数据（code=0）。
+    """
+    if isinstance(media_ids, str):
+        media_ids = [media_ids]
     client = _client(cookie)
-    pn = 1
-    items = []
-    while True:
-        _throttle()
-        r = client.get(
-            FAV_API,
-            params={"media_id": media_id, "pn": pn, "ps": page_size, "platform": "web"},
-        )
-        data = r.json()
-        if data.get("code") != 0 or not data.get("data"):
-            if pn == 1:
-                msg = data.get("message", "未知错误")
-                code = data.get("code")
-                if code == 0:
-                    raise BiliError(
-                        "B 站返回空数据：该收藏夹大概率是私密的。请在导入页展开「粘贴 B 站 Cookie」"
-                        "填入浏览器 Cookie 后重试（获取方法：B 站任意页面按 F12 → 网络 → 刷新页面 →"
-                        "点任意 api.bilibili.com 请求 → 复制请求头里的 Cookie）"
-                    )
-                if code in (-403, -101):
-                    raise BiliError("该收藏夹为私密或不存在，请检查链接，或在导入时粘贴你的 B 站 Cookie")
-                raise BiliError(f"获取收藏夹失败: {msg} (code={code})")
-            break  # 翻到末页，data 为 null
-        info = data["data"]["info"]
-        medias = data["data"].get("medias") or []
-        for m in medias:
-            if m.get("type") != 2:  # 只要视频（跳过音频/合集等）
-                continue
-            items.append(
-                {
-                    "bvid": m["bvid"],
-                    "raw_title": m["title"],
-                    "cover_url": m.get("cover", ""),
-                    "duration": m.get("duration", 0),
-                    "uploader": (m.get("upper") or {}).get("name", ""),
-                    "uploader_mid": (m.get("upper") or {}).get("mid", 0),
-                }
+    saw_empty, saw_denied = False, False
+
+    for media_id in media_ids:
+        pn, items, info = 1, [], None
+        failed = False
+        while True:
+            _throttle()
+            r = client.get(
+                FAV_API,
+                params={"media_id": media_id, "pn": pn, "ps": page_size, "platform": "web"},
             )
-        if not data["data"].get("has_more"):
-            break
-        pn += 1
-        time.sleep(0.3)
-    return info.get("title", "B站收藏夹"), items
+            data = r.json()
+            if data.get("code") != 0 or not data.get("data"):
+                if pn == 1:
+                    failed = True
+                    code = data.get("code")
+                    if code == 0:
+                        saw_empty = True
+                    elif code in (-403, -101):
+                        saw_denied = True
+                break  # 该候选无效或翻到末页
+            info = data["data"]["info"]
+            medias = data["data"].get("medias") or []
+            for m in medias:
+                if m.get("type") != 2:  # 只要视频（跳过音频/合集等）
+                    continue
+                items.append(
+                    {
+                        "bvid": m["bvid"],
+                        "raw_title": m["title"],
+                        "cover_url": m.get("cover", ""),
+                        "duration": m.get("duration", 0),
+                        "uploader": (m.get("upper") or {}).get("name", ""),
+                        "uploader_mid": (m.get("upper") or {}).get("mid", 0),
+                    }
+                )
+            if not data["data"].get("has_more"):
+                break
+            pn += 1
+            time.sleep(0.3)
+
+        if not failed and info is not None:
+            return info.get("title", "B站收藏夹"), items, media_id
+
+    if saw_empty and not saw_denied:
+        raise BiliError(
+            "B 站返回空数据：该收藏夹大概率是私密的。请在导入页展开「粘贴 B 站 Cookie」"
+            "填入浏览器 Cookie 后重试"
+        )
+    if saw_denied:
+        raise BiliError("该收藏夹为私密或不存在，请检查链接，或在导入时粘贴你的 B 站 Cookie")
+    raise BiliError("获取收藏夹失败：收藏夹不存在或链接有误")
 
 
 def fetch_buvid() -> dict[str, str]:

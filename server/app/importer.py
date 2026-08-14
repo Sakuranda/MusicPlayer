@@ -27,9 +27,9 @@ def _cookie_file(media_id: str, cookie: str | None) -> Path | None:
 def parse_and_store(url: str, cookie: str | None = None, album: str | None = None) -> str:
     """拉取收藏夹 → 解析标题 → 入库（status=pending），返回 job_id。"""
     conn = get_conn()
-    media_id = bilibili.parse_fav_url(url)
+    media_ids = bilibili.parse_fav_url(url)
+    fav_title, items, media_id = bilibili.fetch_favorites(media_ids, cookie)
     _cookie_file(media_id, cookie)
-    fav_title, items = bilibili.fetch_favorites(media_id, cookie)
     if not items:
         raise ImportError("收藏夹是空的")
 
