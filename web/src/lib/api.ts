@@ -21,7 +21,7 @@ export function setToken(v: string) {
   else localStorage.removeItem(LS_TOKEN)
 }
 
-async function req<T>(path: string, opts: RequestInit = {}): Promise<T> {
+async function req<T>(path: string, opts: RequestInit = {}, retried = false): Promise<T> {
   const token = getToken()
   const headers: Record<string, string> = { ...(opts.headers as Record<string, string>) }
   if (token) headers['X-Api-Token'] = token
@@ -33,6 +33,11 @@ async function req<T>(path: string, opts: RequestInit = {}): Promise<T> {
     throw new Error('无法连接服务器，请检查设置中的服务器地址')
   }
   if (!res.ok) {
+    // 服务器重启/部署瞬间的网关错误，自动重试一次
+    if (!retried && (res.status === 502 || res.status === 503 || res.status === 504)) {
+      await new Promise((r) => setTimeout(r, 1500))
+      return req<T>(path, opts, true)
+    }
     let msg = `请求失败 (${res.status})`
     try {
       const data = await res.json()
