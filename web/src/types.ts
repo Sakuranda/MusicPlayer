@@ -1,3 +1,10 @@
+export interface Part {
+  cid: number
+  page: number
+  part: string
+  duration: number
+}
+
 export interface Song {
   id: number
   bvid: string
@@ -6,6 +13,12 @@ export interface Song {
   artist: string
   album: string
   duration: number | null
+  cid: number | null
+  part_index: number | null
+  part_title: string | null
+  parts: Part[] | null
+  source_url: string | null
+  downloaded_cid: number | null
   raw_title: string
   uploader: string
   tags: string[]

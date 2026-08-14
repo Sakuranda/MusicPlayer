@@ -30,6 +30,12 @@ CREATE TABLE IF NOT EXISTS songs (
     artist      TEXT NOT NULL,          -- 歌手/UP主/标签
     album       TEXT,
     duration    REAL,
+    cid         INTEGER,                -- 选中的分P cid
+    part_index  INTEGER DEFAULT 1,      -- 选中的第几P
+    part_title  TEXT,                   -- 选中P的标题
+    parts       TEXT,                   -- JSON: 全部分P [{cid,page,part,duration}]
+    source_url  TEXT,                   -- B站视频完整链接（含分P参数）
+    downloaded_cid INTEGER,             -- 实际下载过的分P cid（去重用）
     raw_title   TEXT,
     uploader    TEXT,
     tags        TEXT,                   -- JSON 数组
@@ -44,6 +50,16 @@ CREATE TABLE IF NOT EXISTS songs (
 );
 """
 
+# 旧库迁移：补充分P相关列
+MIGRATIONS = [
+    "ALTER TABLE songs ADD COLUMN cid INTEGER",
+    "ALTER TABLE songs ADD COLUMN part_index INTEGER DEFAULT 1",
+    "ALTER TABLE songs ADD COLUMN part_title TEXT",
+    "ALTER TABLE songs ADD COLUMN parts TEXT",
+    "ALTER TABLE songs ADD COLUMN source_url TEXT",
+    "ALTER TABLE songs ADD COLUMN downloaded_cid INTEGER",
+]
+
 
 def get_conn() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -53,6 +69,11 @@ def get_conn() -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     with _lock:
         conn.executescript(SCHEMA)
+        for stmt in MIGRATIONS:
+            try:
+                conn.execute(stmt)
+            except sqlite3.OperationalError:
+                pass  # 列已存在
     return conn
 
 
@@ -62,11 +83,12 @@ def now() -> str:
 
 def _song_row(row: sqlite3.Row) -> dict:
     d = dict(row)
-    if d.get("tags"):
-        try:
-            d["tags"] = json.loads(d["tags"])
-        except json.JSONDecodeError:
-            d["tags"] = []
+    for key in ("tags", "parts"):
+        if d.get(key):
+            try:
+                d[key] = json.loads(d[key])
+            except json.JSONDecodeError:
+                d[key] = []
     d["cover"] = f"/api/songs/{d['id']}/cover" if d.get("cover_url") else None
     return d
 
@@ -104,12 +126,19 @@ def update_job(conn: sqlite3.Connection, job_id: str, **fields) -> None:
 # ---------- songs ----------
 
 def insert_song(conn: sqlite3.Connection, data: dict) -> int:
+    """插入歌曲；bvid 已存在时更新元数据，保留音频文件与歌词（重新导入不丢数据）。"""
     cur = conn.execute(
-        "INSERT OR REPLACE INTO songs "
-        "(bvid, job_id, title, artist, album, duration, raw_title, uploader, tags, "
-        " cover_url, status, created_at) "
-        "VALUES (:bvid, :job_id, :title, :artist, :album, :duration, :raw_title, "
-        ":uploader, :tags, :cover_url, 'pending', :created_at)",
+        "INSERT INTO songs "
+        "(bvid, job_id, title, artist, album, duration, cid, part_index, part_title, parts, "
+        " source_url, raw_title, uploader, tags, cover_url, status, created_at) "
+        "VALUES (:bvid, :job_id, :title, :artist, :album, :duration, :cid, :part_index, "
+        ":part_title, :parts, :source_url, :raw_title, :uploader, :tags, :cover_url, 'pending', :created_at) "
+        "ON CONFLICT(bvid) DO UPDATE SET "
+        "job_id=excluded.job_id, title=excluded.title, artist=excluded.artist, "
+        "album=excluded.album, duration=excluded.duration, cid=excluded.cid, "
+        "part_index=excluded.part_index, part_title=excluded.part_title, parts=excluded.parts, "
+        "source_url=excluded.source_url, raw_title=excluded.raw_title, "
+        "uploader=excluded.uploader, tags=excluded.tags, cover_url=excluded.cover_url",
         {**data, "created_at": now()},
     )
     conn.commit()

@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Disc3,
   Download,
+  ExternalLink,
   Loader2,
   Pencil,
   Play,
@@ -13,6 +14,7 @@ import {
 } from 'lucide-react'
 import { api } from '../lib/api'
 import { usePlayer } from '../hooks/usePlayer'
+import { fmtTime } from '../lib/lrc'
 import type { Song } from '../types'
 
 interface Props {
@@ -115,6 +117,15 @@ function EditModal({
         <div className="text-[11px] text-faint mt-2">
           原标题：{song.raw_title} · UP主：{song.uploader}
         </div>
+        <a
+          href={api.videoUrl(song)}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 text-[11px] text-accent hover:text-accent-soft mt-1.5 transition-colors"
+          onClick={(e) => e.stopPropagation()}
+        >
+          在B站打开视频 <ExternalLink size={11} />
+        </a>
 
         {error && <div className="text-xs text-danger mt-3">{error}</div>}
 
@@ -323,6 +334,7 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
                       <div className="text-xs text-muted truncate mt-0.5" title={song.artist}>
                         {song.artist}
                         {song.album ? ` · ${song.album}` : ''}
+                        {song.duration ? ` · ${fmtTime(song.duration)}` : ''}
                       </div>
                       <div className="flex justify-end gap-0.5 mt-1.5">
                         <button

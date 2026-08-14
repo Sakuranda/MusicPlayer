@@ -72,10 +72,17 @@ export const api = {
 
   songs: () => req<Song[]>('/api/songs'),
   song: (id: number) => req<Song>(`/api/songs/${id}`),
-  updateSong: (id: number, patch: Partial<Pick<Song, 'title' | 'artist' | 'album'>>) =>
+  updateSong: (
+    id: number,
+    patch: Partial<Pick<Song, 'title' | 'artist' | 'album' | 'cid' | 'part_index' | 'part_title' | 'duration'>>,
+  ) =>
     req<Song>(`/api/songs/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteSong: (id: number) => req<{ deleted: boolean }>(`/api/songs/${id}`, { method: 'DELETE' }),
 
   streamUrl: (id: number) => withToken(`${getBase()}/api/stream/${id}`),
   coverUrl: (song: Song) => (song.cover ? withToken(`${getBase()}${song.cover}`) : ''),
+  exportUrl: () => withToken(`${getBase()}/api/export.csv`),
+  videoUrl: (song: Song) =>
+    song.source_url ||
+    `https://www.bilibili.com/video/${song.bvid}${song.part_index && song.part_index > 1 ? `?p=${song.part_index}` : ''}`,
 }

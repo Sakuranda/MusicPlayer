@@ -35,9 +35,11 @@ def write_cookie_file(cookie_str: str, path: Path) -> Path:
     return path
 
 
-def download_audio(bvid: str, cookie_file: Path | None = None, progress_hook=None) -> dict:
+def download_audio(bvid: str, cookie_file: Path | None = None, progress_hook=None,
+                   cid: int | None = None, part_index: int = 1) -> dict:
     """下载视频音频，返回 {file: 临时文件, duration: 秒, cover: 图片字节或 None}。
 
+    cid/part_index 指定下载哪一分P（多P视频）；默认 P1。
     策略：直连 DASH 音频（view→cid→playurl→CDN，不抓网页，绕开 412 网页风控）
          → 失败再回退 yt-dlp（带 buvid 指纹 + 重试）。
     """
@@ -57,7 +59,7 @@ def download_audio(bvid: str, cookie_file: Path | None = None, progress_hook=Non
     _retry_sleeps = (4, 12, 25)
     for attempt, wait in enumerate(_retry_sleeps):
         try:
-            return _direct_dash(bvid, cookie, tmp)
+            return _direct_dash(bvid, cookie, tmp, cid)
         except Exception as e:  # noqa: BLE001
             last_err = e
             if not _transient(e):
@@ -70,7 +72,7 @@ def download_audio(bvid: str, cookie_file: Path | None = None, progress_hook=Non
 
     for attempt, wait in enumerate((8, 20)):
         try:
-            return _ytdlp_download(bvid, cookie_file, progress_hook, tmp, attempt)
+            return _ytdlp_download(bvid, cookie_file, progress_hook, tmp, attempt, part_index)
         except DownloadError as e:
             last_err = e
             time.sleep(wait)
@@ -100,19 +102,30 @@ def _cookie_str_from_netscape(text: str) -> str | None:
     return "; ".join(parts) or None
 
 
-def _direct_dash(bvid: str, cookie: str | None, tmp: Path) -> dict:
+def _direct_dash(bvid: str, cookie: str | None, tmp: Path, cid: int | None = None) -> dict:
     """直连 DASH：view → playurl → 把 CDN 音频直链交给 yt-dlp 下载。
 
     只走 JSON API 拿地址（不走网页，绕开 412），下载用 yt-dlp 的
     generic extractor 处理直链：断点续传、自动重试、限速也稳。
+    cid 指定分P；为空取 P1。
     """
     import yt_dlp
 
     detail = bilibili.fetch_detail(bvid, cookie)
-    cid = detail.get("cid") or (detail.get("pages") or [{}])[0].get("cid")
-    if not cid:
+    pages = detail.get("pages") or []
+    if cid is not None:
+        page = next((p for p in pages if p.get("cid") == cid), None)
+    else:
+        page = pages[0] if pages else None
+    if page is not None:
+        cid_used = page.get("cid") or detail.get("cid")
+        dur = page.get("duration") or detail.get("duration") or 0
+    else:
+        cid_used = cid or detail.get("cid")
+        dur = detail.get("duration") or 0
+    if not cid_used:
         raise RuntimeError("视频没有可用的 cid")
-    play = bilibili.fetch_playurl(bvid, cid, cookie)
+    play = bilibili.fetch_playurl(bvid, cid_used, cookie)
     dash = play.get("dash") or {}
     audios = dash.get("audio") or []
     if not audios:
@@ -154,10 +167,11 @@ def _direct_dash(bvid: str, cookie: str | None, tmp: Path) -> dict:
                 cover = r.content
         except Exception:
             cover = None
-    return {"file": path, "duration": float(detail.get("duration") or 0), "cover": cover}
+    return {"file": path, "duration": float(dur or 0), "cover": cover}
 
 
-def _ytdlp_download(bvid: str, cookie_file: Path | None, progress_hook, tmp: Path, attempt: int) -> dict:
+def _ytdlp_download(bvid: str, cookie_file: Path | None, progress_hook, tmp: Path,
+                    attempt: int, part_index: int = 1) -> dict:
     import yt_dlp
 
     # 合并用户 Cookie + 每次全新获取的 buvid 指纹（应对数据中心 IP 风控）
@@ -195,7 +209,10 @@ def _ytdlp_download(bvid: str, cookie_file: Path | None, progress_hook, tmp: Pat
         ydl_opts["progress_hooks"] = [progress_hook]
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(f"https://www.bilibili.com/video/{bvid}", download=True)
+        url = f"https://www.bilibili.com/video/{bvid}"
+        if part_index > 1:
+            url += f"?p={part_index}"
+        info = ydl.extract_info(url, download=True)
         path = Path(ydl.prepare_filename(info))
         m4a = path.with_suffix(".m4a")
         if not m4a.exists():  # 某些情况下后缀不同

@@ -56,7 +56,7 @@ export default function PlayerBar() {
   const sliderStyle = (p: number) =>
     ({ '--range-bg': `linear-gradient(to right, #d97757 ${p}%, #3a362f ${p}%)` }) as React.CSSProperties
 
-  const Cover = ({ className, spin }: { className?: string; spin?: boolean }) => {
+  const Cover = ({ className }: { className?: string }) => {
     const url = api.coverUrl(current)
     if (!url) {
       return (
@@ -65,7 +65,7 @@ export default function PlayerBar() {
         </div>
       )
     }
-    return <img src={url} alt="" className={`object-cover ${spin ? 'spin-slow rounded-full' : ''} ${className ?? ''}`} />
+    return <img src={url} alt="" className={`object-cover ${className ?? ''}`} />
   }
 
   return (
@@ -152,10 +152,10 @@ export default function PlayerBar() {
           </div>
 
           <div className="flex-1 min-h-0 flex items-center justify-center gap-16 px-12 py-8 max-w-6xl mx-auto w-full">
-            {/* 封面 */}
+            {/* 封面（静态） */}
             <div className="hidden md:flex flex-col items-center gap-8">
-              <div className={`w-72 h-72 rounded-full overflow-hidden shadow-2xl ${playing ? '' : 'spin-slow-paused'}`}>
-                <Cover className="w-full h-full" spin />
+              <div className="w-72 h-72 rounded-3xl overflow-hidden shadow-2xl">
+                <Cover className="w-full h-full" />
               </div>
               <div className="text-center">
                 <div className="text-xl font-semibold">{current.title}</div>

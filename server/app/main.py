@@ -1,11 +1,13 @@
 """MusicPlayer API — FastAPI 入口。"""
+import csv
+import io
 import logging
 import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .bilibili import BiliError
@@ -103,6 +105,29 @@ def job_delete(job_id: str):
 def songs(status: str | None = None):
     conn = get_conn()
     return list_songs(conn, status=status)
+
+
+@app.get("/api/export.csv")
+def export_csv():
+    """导出全曲库为 CSV（含 B 站视频链接），方便备份与去重核对。"""
+    conn = get_conn()
+    all_songs = list_songs(conn)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["id", "歌曲名", "歌手", "专辑", "bvid", "B站视频链接", "分P", "时长(秒)", "状态", "歌词来源"])
+    for s in all_songs:
+        w.writerow([
+            s["id"], s["title"], s["artist"], s.get("album") or "",
+            s["bvid"], s.get("source_url") or f"https://www.bilibili.com/video/{s['bvid']}",
+            s.get("part_index") or 1, s.get("duration") or "", s["status"],
+            s.get("lyrics_source") or "",
+        ])
+    # UTF-8 BOM，Excel 打开中文不乱码
+    return Response(
+        content=("\ufeff" + buf.getvalue()).encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=musicplayer-songs.csv"},
+    )
 
 
 @app.get("/api/songs/{sid}")

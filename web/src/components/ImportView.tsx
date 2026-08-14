@@ -11,6 +11,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import { api } from '../lib/api'
+import { fmtTime } from '../lib/lrc'
 import type { JobDetail, Song } from '../types'
 
 interface Props {
@@ -33,7 +34,9 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
   const [error, setError] = useState('')
 
   const [detail, setDetail] = useState<JobDetail | null>(null)
-  const [edits, setEdits] = useState<Record<number, { title: string; artist: string }>>({})
+  const [edits, setEdits] = useState<
+    Record<number, { title: string; artist: string; cid?: number; part_index?: number; part_title?: string; duration?: number }>
+  >({})
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [starting, setStarting] = useState(false)
   const timerRef = useRef<number | null>(null)
@@ -73,12 +76,32 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
     else setSelected(new Set(songs.map((s) => s.id)))
   }
 
-  const updateEdit = (id: number, field: 'title' | 'artist', value: string) => {
+  const updateEdit = (id: number, field: 'title' | 'artist' | 'cid', value: string | number) => {
     const src = songs.find((s) => s.id === id)
     setEdits((prev) => {
       // 首次编辑时用原始值初始化另一字段，避免歌名被空字符串覆盖
-      const cur = prev[id] ?? { title: src?.title ?? '', artist: src?.artist ?? '' }
-      return { ...prev, [id]: { ...cur, [field]: value } }
+      const cur = prev[id] ?? {
+        title: src?.title ?? '',
+        artist: src?.artist ?? '',
+        cid: src?.cid ?? undefined,
+        part_index: src?.part_index ?? undefined,
+        part_title: src?.part_title ?? undefined,
+        duration: src?.duration ?? undefined,
+      }
+      if (field === 'cid') {
+        const part = (src?.parts ?? []).find((p) => p.cid === value)
+        return {
+          ...prev,
+          [id]: {
+            ...cur,
+            cid: value as number,
+            part_index: part?.page,
+            part_title: part?.part,
+            duration: part?.duration,
+          },
+        }
+      }
+      return { ...prev, [id]: { ...cur, [field]: value as string } }
     })
   }
 
@@ -93,7 +116,7 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
     setStarting(true)
     try {
       const bvids = songs.filter((s) => selected.has(s.id)).map((s) => s.bvid)
-      // 先提交编辑
+      // 先提交编辑（歌名/歌手/分P选择）
       await Promise.all(
         songs
           .filter((s) => edits[s.id])
@@ -101,6 +124,10 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
             api.updateSong(s.id, {
               title: edits[s.id].title || s.title,
               artist: edits[s.id].artist || s.artist,
+              cid: edits[s.id].cid,
+              part_index: edits[s.id].part_index,
+              part_title: edits[s.id].part_title,
+              duration: edits[s.id].duration,
             }),
           ),
       )
@@ -321,6 +348,37 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
                       {song.uploader ? ` · UP主：${song.uploader}` : ''}
                       {song.tags?.length ? ` · 标签：${song.tags.join(' / ')}` : ''}
                     </div>
+                    {/* 时长与分P选择 */}
+                    {(song.parts?.length ?? 0) > 1 ? (
+                      <div className="col-span-2 pl-1 mt-0.5">
+                        <div className="text-[11px] text-muted mb-1">
+                          多 P 视频（{song.parts!.length} P）· 选择要下载的 P：
+                        </div>
+                        <div className="space-y-0.5 max-h-24 overflow-y-auto">
+                          {song.parts!.map((p) => (
+                            <label
+                              key={p.cid}
+                              className="flex items-center gap-1.5 text-[11px] text-muted cursor-pointer hover:text-ink transition-colors"
+                            >
+                              <input
+                                type="radio"
+                                name={`part-${song.id}`}
+                                checked={(e?.cid ?? song.cid) === p.cid}
+                                onChange={() => updateEdit(song.id, 'cid', p.cid)}
+                                className="accent-[#d97757] w-3.5 h-3.5"
+                              />
+                              <span className="truncate">P{p.page} {p.part}</span>
+                              <span className="text-faint tabular-nums shrink-0">{fmtTime(p.duration)}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="col-span-2 pl-1 text-[11px] text-faint tabular-nums">
+                        时长：{fmtTime(e?.duration ?? song.duration ?? 0)}
+                        {song.parts?.[0]?.part ? ` · ${song.parts[0].part}` : ''}
+                      </div>
+                    )}
                   </div>
                 </div>
               )

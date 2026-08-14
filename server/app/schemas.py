@@ -14,6 +14,10 @@ class SongUpdate(BaseModel):
     title: Optional[str] = None
     artist: Optional[str] = None
     album: Optional[str] = None
+    cid: Optional[int] = None          # 选中的分P
+    part_index: Optional[int] = None
+    part_title: Optional[str] = None
+    duration: Optional[float] = None   # 选中P的时长
 
 
 class StartRequest(BaseModel):

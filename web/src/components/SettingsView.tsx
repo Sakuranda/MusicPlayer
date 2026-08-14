@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Check, ExternalLink, Loader2, Smartphone } from 'lucide-react'
+import { Check, Download, ExternalLink, Loader2, Smartphone } from 'lucide-react'
 import { api, getBase, getToken, setBase, setToken } from '../lib/api'
 
 interface Props {
@@ -102,6 +102,23 @@ export default function SettingsView({ onSaved }: Props) {
           className="inline-flex items-center gap-1 text-xs text-accent hover:text-accent-soft mt-4 transition-colors"
         >
           了解 Amperfy <ExternalLink size={12} />
+        </a>
+      </div>
+
+      {/* 数据备份 */}
+      <div className="bg-panel border border-line rounded-2xl p-6 mb-6">
+        <div className="flex items-center gap-2 mb-3">
+          <Download size={17} className="text-accent" />
+          <h2 className="text-base font-medium">曲库备份</h2>
+        </div>
+        <p className="text-sm text-muted mb-4 leading-relaxed">
+          导出全曲库清单（CSV，含每首歌对应的 B 站视频链接与分P），可用 Excel 打开，重复导入时会自动跳过已下载的歌曲。
+        </p>
+        <a
+          href={api.exportUrl()}
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-panel2 border border-line text-sm hover:border-accent/50 transition-colors"
+        >
+          <Download size={15} /> 导出歌曲清单 CSV
         </a>
       </div>
 

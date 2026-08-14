@@ -39,6 +39,40 @@ def parse_and_store(url: str, cookie: str | None = None, album: str | None = Non
 
     def enrich(item: dict) -> dict:
         item["tags"] = bilibili.fetch_tags(item["bvid"], cookie)
+        # 视频详情：获取分P信息（cid、每P标题与时长）
+        item["parts"] = []
+        item["cid"] = None
+        item["part_index"] = 1
+        item["part_title"] = None
+        try:
+            detail = bilibili.fetch_detail(item["bvid"], cookie)
+            pages = detail.get("pages") or []
+            if pages:
+                item["parts"] = [
+                    {
+                        "cid": p.get("cid"),
+                        "page": p.get("page", i + 1),
+                        "part": p.get("part") or f"P{i + 1}",
+                        "duration": p.get("duration") or 0,
+                    }
+                    for i, p in enumerate(pages)
+                ]
+                first = item["parts"][0]
+                item["cid"] = first["cid"]
+                item["part_index"] = 1
+                item["part_title"] = first["part"]
+                item["duration"] = first["duration"] or item["duration"]
+            elif detail.get("cid"):
+                item["cid"] = detail["cid"]
+                item["parts"] = [{
+                    "cid": detail["cid"], "page": 1, "part": "P1",
+                    "duration": detail.get("duration") or item["duration"],
+                }]
+                item["duration"] = detail.get("duration") or item["duration"]
+                item["part_index"] = 1
+                item["part_title"] = "P1"
+        except Exception:
+            pass  # 详情拉不到不阻塞导入，下载时再报错
         return item
 
     with ThreadPoolExecutor(max_workers=8) as ex:
@@ -53,6 +87,11 @@ def parse_and_store(url: str, cookie: str | None = None, album: str | None = Non
             "artist": artist or item["uploader"] or "未知歌手",
             "album": album,
             "duration": item["duration"] or None,
+            "cid": item["cid"],
+            "part_index": item["part_index"],
+            "part_title": item["part_title"],
+            "parts": json.dumps(item["parts"], ensure_ascii=False) if item["parts"] else None,
+            "source_url": f"https://www.bilibili.com/video/{item['bvid']}?p={item['part_index']}",
             "raw_title": item["raw_title"],
             "uploader": item["uploader"],
             "tags": json.dumps(item["tags"], ensure_ascii=False),
@@ -76,7 +115,11 @@ def _download_one(conn, song: dict, cookie_file: Path | None):
         except Exception:
             pass
 
-        result = downloader.download_audio(song["bvid"], cookie_file)
+        result = downloader.download_audio(
+            song["bvid"], cookie_file,
+            cid=song.get("cid"),
+            part_index=song.get("part_index") or 1,
+        )
         rel = downloader.tag_and_store(
             result["file"], song["title"], song["artist"], song["album"],
             result["cover"], song["bvid"],
@@ -91,6 +134,7 @@ def _download_one(conn, song: dict, cookie_file: Path | None):
                     file_path=rel,
                     duration=song["duration"] or result["duration"],
                     cover_url=cover_name or song["cover_url"],
+                    downloaded_cid=song.get("cid"),
                     error=None)
         return True
     except Exception as e:  # noqa: BLE001
@@ -120,6 +164,17 @@ def start_download(job_id: str, bvids: list[str] | None = None):
     if bvids:
         bv_set = set(bvids)
         songs = [s for s in songs if s["bvid"] in bv_set]
+        # 去重：已下载且分P未变化的直接跳过，不重复下载
+        skipped = 0
+        to_download = []
+        for s in songs:
+            if s["status"] == "ready" and (s.get("downloaded_cid") is None or s.get("downloaded_cid") == s.get("cid")):
+                skipped += 1
+            else:
+                to_download.append(s)
+        songs = to_download
+        if skipped:
+            update_job(conn, job_id, message=f"跳过 {skipped} 首已下载的歌曲")
         # 进度不重置：任务结束时会从数据库重算统计
     else:
         # 失败的重试，已就绪的跳过
