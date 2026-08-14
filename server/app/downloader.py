@@ -37,33 +37,95 @@ def write_cookie_file(cookie_str: str, path: Path) -> Path:
 def download_audio(bvid: str, cookie_file: Path | None = None, progress_hook=None) -> dict:
     """下载视频音频，返回 {file: 临时文件, duration: 秒, cover: 图片字节或 None}。
 
-    412 风控时自动换新指纹并重试最多 3 次。
+    策略：直连 DASH 音频（view→cid→playurl→CDN，不抓网页，绕开 412 网页风控）
+         → 失败再回退 yt-dlp（带 buvid 指纹 + 重试）。
     """
-    import yt_dlp
-    from yt_dlp.utils import DownloadError
-
     tmp = Path("/tmp") / f"ytdl-{bvid}"
     tmp.mkdir(exist_ok=True)
 
+    cookie = None
+    if cookie_file and cookie_file.exists():
+        cookie = cookie_file.read_text(encoding="utf-8", errors="ignore")
+        # 取原始 Cookie 串（我们写入时保留了 "k=v; k=v" 无法还原，直接传文件内容
+        # 供 httpx 用需要还原格式，见 _cookie_str_from_netscape）
+        cookie = _cookie_str_from_netscape(cookie)
+
+    # 1) 直连 DASH（JSON API 路线，服务器 IP 已被验证可用）
     last_err: Exception | None = None
-    for attempt in range(3):
+    for attempt in range(2):
         try:
-            return _download_once(bvid, cookie_file, progress_hook, tmp, attempt)
-        except DownloadError as e:
-            last_err = e
-            if "412" not in str(e):
-                raise
-            wait = 8 * (attempt + 1)
-            time.sleep(wait)  # 等风控窗口过去，下一轮会换新指纹
+            return _direct_dash(bvid, cookie, tmp)
         except Exception as e:  # noqa: BLE001
             last_err = e
-            if "412" not in str(e):
-                raise
+            time.sleep(3 * (attempt + 1))
+
+    # 2) 回退 yt-dlp（网页路线，带指纹 Cookie，应对 412）
+    import yt_dlp
+    from yt_dlp.utils import DownloadError
+
+    for attempt in range(2):
+        try:
+            return _ytdlp_download(bvid, cookie_file, progress_hook, tmp, attempt)
+        except DownloadError as e:
+            last_err = e
             time.sleep(8 * (attempt + 1))
-    raise RuntimeError(f"下载失败（412 风控，已重试 3 次）: {last_err}")
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+            time.sleep(8 * (attempt + 1))
+
+    raise RuntimeError(f"下载失败（B 站风控，两条路线均已重试）: {last_err}")
 
 
-def _download_once(bvid: str, cookie_file: Path | None, progress_hook, tmp: Path, attempt: int) -> dict:
+def _cookie_str_from_netscape(text: str) -> str | None:
+    """把 Netscape 格式 Cookie 文件还原成 k=v; k=v 字符串（bilibili 域）。"""
+    parts = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        fields = line.split("\t")
+        if len(fields) >= 7 and "bilibili" in fields[0]:
+            parts.append(f"{fields[5]}={fields[6]}")
+    return "; ".join(parts) or None
+
+
+def _direct_dash(bvid: str, cookie: str | None, tmp: Path) -> dict:
+    """直连 DASH：view → playurl → CDN 下载 m4a。"""
+    detail = bilibili.fetch_detail(bvid, cookie)
+    cid = detail.get("cid") or (detail.get("pages") or [{}])[0].get("cid")
+    if not cid:
+        raise RuntimeError("视频没有可用的 cid")
+    play = bilibili.fetch_playurl(bvid, cid, cookie)
+    dash = play.get("dash") or {}
+    audios = dash.get("audio") or []
+    if not audios:
+        raise RuntimeError("该视频没有 DASH 音频流")
+    audio = max(audios, key=lambda a: a.get("id", 0))  # 30280 = 192k
+    url = audio.get("baseUrl") or audio.get("base_url") or (audio.get("backupUrl") or [None])[0]
+    if not url:
+        raise RuntimeError("音频地址为空")
+
+    dest = tmp / f"{bvid}.m4a"
+    headers = {"User-Agent": BILI_HEADERS["User-Agent"], "Referer": "https://www.bilibili.com/"}
+    with httpx.stream("GET", url, headers=headers, timeout=120, follow_redirects=True) as r:
+        r.raise_for_status()
+        with open(dest, "wb") as f:
+            for chunk in r.iter_bytes(1 << 16):
+                f.write(chunk)
+
+    cover = None
+    pic = detail.get("pic")
+    if pic:
+        try:
+            r = httpx.get(pic, headers=headers, timeout=15)
+            if r.status_code == 200:
+                cover = r.content
+        except Exception:
+            cover = None
+    return {"file": dest, "duration": float(detail.get("duration") or 0), "cover": cover}
+
+
+def _ytdlp_download(bvid: str, cookie_file: Path | None, progress_hook, tmp: Path, attempt: int) -> dict:
     import yt_dlp
 
     # 合并用户 Cookie + 每次全新获取的 buvid 指纹（应对数据中心 IP 风控）

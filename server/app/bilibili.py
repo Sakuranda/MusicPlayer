@@ -15,6 +15,7 @@ FAV_API = "https://api.bilibili.com/x/v3/fav/resource/list"
 VIEW_API = "https://api.bilibili.com/x/web-interface/view"
 TAGS_API = "https://api.bilibili.com/x/tag/archive/tags"
 SPI_API = "https://api.bilibili.com/x/frontend/finger/spi"
+PLAYURL_API = "https://api.bilibili.com/x/player/playurl"
 
 # 简单全局限速：避免持续高频请求触发 412 反爬
 _rate_lock = threading.Lock()
@@ -139,10 +140,25 @@ def fetch_tags(bvid: str, cookie: Optional[str] = None) -> list[str]:
 
 
 def fetch_detail(bvid: str, cookie: Optional[str] = None) -> dict:
-    """获取视频详情（用于兜底补全标题/UP主）。"""
+    """获取视频详情（cid/封面/时长，playurl 需要 cid）。"""
+    _throttle()
     with _client(cookie) as client:
         r = client.get(VIEW_API, params={"bvid": bvid})
         data = r.json()
         if data.get("code") != 0:
             raise BiliError(f"获取视频 {bvid} 详情失败: {data.get('message')}")
+        return data["data"]
+
+
+def fetch_playurl(bvid: str, cid: int, cookie: Optional[str] = None) -> dict:
+    """获取 DASH 播放地址（旧接口，无需 WBI 签名）。"""
+    _throttle()
+    with _client(cookie) as client:
+        r = client.get(
+            PLAYURL_API,
+            params={"bvid": bvid, "cid": cid, "fnval": 16, "fourk": 1, "platform": "pc"},
+        )
+        data = r.json()
+        if data.get("code") != 0:
+            raise BiliError(f"获取 {bvid} 播放地址失败: {data.get('message')} (code={data.get('code')})")
         return data["data"]
