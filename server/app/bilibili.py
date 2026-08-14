@@ -43,8 +43,19 @@ def parse_fav_url(url: str) -> str:
     - https://space.bilibili.com/{mid}/favlist?fid={fid}
       → media_id = int(f"{fid}{str(mid)[-2:]}")（fid + UP主 uid 后两位，已实测验证）
     - https://www.bilibili.com/medialist/detail/ml{mid} → mid 即 media_id
+    - https://b23.tv/xxxx（分享短链，自动跟随跳转）
     """
     url = url.strip()
+
+    # 短链：跟随跳转拿到真实地址再解析
+    if "b23.tv" in url or "bili2233.cn" in url:
+        try:
+            with httpx.Client(headers=BILI_HEADERS, timeout=15, follow_redirects=True) as c:
+                r = c.get(url)
+                url = str(r.url)
+        except Exception as e:  # noqa: BLE001
+            raise BiliError(f"短链展开失败：{e}，请直接复制浏览器地址栏的完整链接") from e
+
     m = re.search(r"medialist/detail/ml(\d+)", url)
     if m:
         return m.group(1)
@@ -53,6 +64,13 @@ def parse_fav_url(url: str) -> str:
     if m_mid and m_fid:
         mid, fid = m_mid.group(1), m_fid.group(1)
         return f"{fid}{mid[-2:]}"
+    if "favlist" in url and m_mid:
+        raise BiliError(
+            "链接里缺少收藏夹编号（fid）。请在 B 站打开【我的收藏】→ 点进那个收藏夹，"
+            "然后复制浏览器地址栏形如 space.bilibili.com/xxx/favlist?fid=xxx 的完整链接"
+        )
+    if re.search(r"bilibili\.com/list/ml\d+", url):
+        raise BiliError("这看起来是 B 站「合集/列表」链接。请确认用的是【收藏夹】：头像 → 我的收藏 → 点进收藏夹复制地址栏链接")
     raise BiliError("无法从链接中识别收藏夹 ID，请提供形如 …/favlist?fid=xxx 或 …/medialist/detail/mlxxx 的链接")
 
 

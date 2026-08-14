@@ -1,4 +1,5 @@
 """MusicPlayer API — FastAPI 入口。"""
+import logging
 import os
 from pathlib import Path
 
@@ -7,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+from .bilibili import BiliError
 from .config import API_TOKEN, COVER_DIR, MUSIC_DIR
 from .db import (delete_song, get_conn, get_job, get_song, list_jobs,
                  list_songs, update_song)
@@ -45,9 +47,10 @@ def create_job(req: ImportRequest):
     """粘贴收藏夹链接 → 解析标题 → 返回预览（不下载）。"""
     try:
         job_id = parse_and_store(req.url, req.cookie, req.album)
-    except ImportError as e:
+    except (ImportError, BiliError) as e:
         raise HTTPException(400, str(e)) from e
     except Exception as e:  # noqa: BLE001
+        logging.getLogger("uvicorn.error").exception("导入失败 url=%r", req.url)
         raise HTTPException(502, f"解析失败：{e}") from e
     conn = get_conn()
     return {"job": get_job(conn, job_id), "songs": list_songs(conn, job_id=job_id)}
