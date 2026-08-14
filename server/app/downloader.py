@@ -90,7 +90,13 @@ def _cookie_str_from_netscape(text: str) -> str | None:
 
 
 def _direct_dash(bvid: str, cookie: str | None, tmp: Path) -> dict:
-    """直连 DASH：view → playurl → CDN 下载 m4a。"""
+    """直连 DASH：view → playurl → 把 CDN 音频直链交给 yt-dlp 下载。
+
+    只走 JSON API 拿地址（不走网页，绕开 412），下载用 yt-dlp 的
+    generic extractor 处理直链：断点续传、自动重试、限速也稳。
+    """
+    import yt_dlp
+
     detail = bilibili.fetch_detail(bvid, cookie)
     cid = detail.get("cid") or (detail.get("pages") or [{}])[0].get("cid")
     if not cid:
@@ -105,24 +111,39 @@ def _direct_dash(bvid: str, cookie: str | None, tmp: Path) -> dict:
     if not url:
         raise RuntimeError("音频地址为空")
 
-    dest = tmp / f"{bvid}.m4a"
-    headers = {"User-Agent": BILI_HEADERS["User-Agent"], "Referer": "https://www.bilibili.com/"}
-    with httpx.stream("GET", url, headers=headers, timeout=120, follow_redirects=True) as r:
-        r.raise_for_status()
-        with open(dest, "wb") as f:
-            for chunk in r.iter_bytes(1 << 16):
-                f.write(chunk)
+    ydl_opts = {
+        "outtmpl": str(tmp / f"{bvid}.%(ext)s"),
+        "quiet": True,
+        "no_warnings": True,
+        "noprogress": True,
+        "retries": 10,
+        "fragment_retries": 10,
+        "socket_timeout": 30,
+        "continuedl": True,
+        "http_headers": {
+            "User-Agent": BILI_HEADERS["User-Agent"],
+            "Referer": "https://www.bilibili.com/",
+        },
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        path = Path(ydl.prepare_filename(info))
+        if not path.exists():
+            candidates = [p for p in tmp.glob(f"{bvid}*") if p.suffix in (".m4a", ".m4s", ".mp3", ".webm")]
+            if not candidates:
+                raise RuntimeError("未找到下载的音频文件")
+            path = candidates[0]
 
     cover = None
     pic = detail.get("pic")
     if pic:
         try:
-            r = httpx.get(pic, headers=headers, timeout=15)
+            r = httpx.get(pic, headers=BILI_HEADERS, timeout=15)
             if r.status_code == 200:
                 cover = r.content
         except Exception:
             cover = None
-    return {"file": dest, "duration": float(detail.get("duration") or 0), "cover": cover}
+    return {"file": path, "duration": float(detail.get("duration") or 0), "cover": cover}
 
 
 def _ytdlp_download(bvid: str, cookie_file: Path | None, progress_hook, tmp: Path, attempt: int) -> dict:
@@ -144,6 +165,7 @@ def _ytdlp_download(bvid: str, cookie_file: Path | None, progress_hook, tmp: Pat
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
+        "noprogress": True,
         "retries": 5,
         "fragment_retries": 5,
         "socket_timeout": 30,
