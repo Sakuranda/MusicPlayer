@@ -1,7 +1,7 @@
-# 复制为 deploy/Caddyfile 使用前，把域名换成你自己的
-# 免费方案（无需备案）：
-#   - DuckDNS: https://www.duckdns.org 注册 xxx.duckdns.org 并指向服务器 IP
-#   - sslip.io: 直接用 45.125.33.88.sslip.io（零配置，Caddy 自动申请证书）
+# 可选：HTTPS 反代（docker compose --profile https 启用）
+# 当前线上已用服务器系统级 Caddy 反代 music.sakuranda.site → api:8080，
+# 本文件仅为无系统 Caddy 时的备选方案。使用前把域名换成你自己的
+# 免费方案（无需备案）：DuckDNS（xxx.duckdns.org）或 sslip.io（45.125.33.88.sslip.io）
 
 music.你的域名.duckdns.org {
     reverse_proxy api:8080
