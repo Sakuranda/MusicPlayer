@@ -74,10 +74,12 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
   }
 
   const updateEdit = (id: number, field: 'title' | 'artist', value: string) => {
-    setEdits((prev) => ({
-      ...prev,
-      [id]: { ...(prev[id] ?? { title: '', artist: '' }), [field]: value },
-    }))
+    const src = songs.find((s) => s.id === id)
+    setEdits((prev) => {
+      // 首次编辑时用原始值初始化另一字段，避免歌名被空字符串覆盖
+      const cur = prev[id] ?? { title: src?.title ?? '', artist: src?.artist ?? '' }
+      return { ...prev, [id]: { ...cur, [field]: value } }
+    })
   }
 
   const finalSong = (s: Song): Song => {

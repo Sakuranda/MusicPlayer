@@ -8,6 +8,7 @@ import {
   Play,
   RefreshCw,
   Search,
+  Trash2,
   X,
 } from 'lucide-react'
 import { api } from '../lib/api'
@@ -137,10 +138,71 @@ function EditModal({
   )
 }
 
+function DeleteModal({
+  song,
+  onClose,
+  onDeleted,
+}: {
+  song: Song
+  onClose: () => void
+  onDeleted: () => void
+}) {
+  const [deleting, setDeleting] = useState(false)
+  const [error, setError] = useState('')
+
+  const doDelete = async () => {
+    setDeleting(true)
+    setError('')
+    try {
+      await api.deleteSong(song.id)
+      onDeleted()
+      onClose()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+      setDeleting(false)
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center fade-in-up"
+      onClick={onClose}
+    >
+      <div
+        className="w-[360px] max-w-[92vw] bg-panel border border-line rounded-2xl p-6"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-base font-medium mb-2">删除歌曲</h3>
+        <p className="text-sm text-muted leading-relaxed mb-5">
+          确定删除 <span className="text-ink">{song.title}</span> — {song.artist} 吗？
+          音频文件和歌词将一并从服务器移除，此操作不可撤销。
+        </p>
+        {error && <div className="text-xs text-danger mb-4">{error}</div>}
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="px-4 py-2.5 rounded-xl bg-panel2 border border-line text-sm text-muted hover:text-ink transition-colors"
+          >
+            取消
+          </button>
+          <button
+            onClick={doDelete}
+            disabled={deleting}
+            className="px-4 py-2.5 rounded-xl bg-danger hover:bg-danger/85 text-white text-sm font-medium transition-colors disabled:opacity-50"
+          >
+            {deleting ? '删除中…' : '确认删除'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: Props) {
   const { playSong, playQueue, current, playing } = usePlayer()
   const [query, setQuery] = useState('')
   const [editing, setEditing] = useState<Song | null>(null)
+  const [deleting, setDeleting] = useState<Song | null>(null)
   const [localSongs, setLocalSongs] = useState(songs)
 
   // 外部刷新时同步
@@ -262,7 +324,7 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
                         {song.artist}
                         {song.album ? ` · ${song.album}` : ''}
                       </div>
-                      <div className="flex justify-end mt-1.5">
+                      <div className="flex justify-end gap-0.5 mt-1.5">
                         <button
                           onClick={(e) => {
                             e.stopPropagation()
@@ -272,6 +334,16 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
                           title="编辑歌曲信息"
                         >
                           <Pencil size={13} />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setDeleting(song)
+                          }}
+                          className="p-1.5 rounded-lg text-faint hover:text-danger hover:bg-danger/10 transition-colors"
+                          title="删除歌曲"
+                        >
+                          <Trash2 size={13} />
                         </button>
                       </div>
                     </div>
@@ -316,6 +388,13 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
                         {song.error || '失败'}
                       </span>
                     )}
+                    <button
+                      onClick={() => setDeleting(song)}
+                      className="p-1.5 rounded-lg text-faint hover:text-danger hover:bg-danger/10 transition-colors shrink-0"
+                      title="删除该条目"
+                    >
+                      <Trash2 size={13} />
+                    </button>
                   </div>
                 ))}
               </div>
@@ -330,6 +409,17 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
           onClose={() => setEditing(null)}
           onSaved={(updated) => {
             setLocalSongs((prev) => prev.map((s) => (s.id === updated.id ? updated : s)))
+            onRefresh()
+          }}
+        />
+      )}
+
+      {deleting && (
+        <DeleteModal
+          song={deleting}
+          onClose={() => setDeleting(null)}
+          onDeleted={() => {
+            setLocalSongs((prev) => prev.filter((s) => s.id !== deleting.id))
             onRefresh()
           }}
         />
