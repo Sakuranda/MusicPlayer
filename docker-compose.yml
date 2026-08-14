@@ -1,0 +1,46 @@
+# hk 服务器部署编排：api（后端 + 网页）+ navidrome（iOS 曲库）+ caddy（可选 HTTPS）
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    container_name: musicplayer-api
+    restart: unless-stopped
+    volumes:
+      - ./data:/data
+    environment:
+      - DATA_DIR=/data
+      - DOWNLOAD_THREADS=3
+      - API_TOKEN=${API_TOKEN:-}
+    ports:
+      - "8080:8080"
+
+  navidrome:
+    image: deluan/navidrome:latest
+    container_name: musicplayer-navidrome
+    restart: unless-stopped
+    user: 0:0
+    environment:
+      ND_LOGLEVEL: info
+      ND_SESSIONTIMEOUT: 720h
+    volumes:
+      - ./data/music:/music:ro
+      - ./data/navidrome:/data
+    ports:
+      - "4533:4533"
+
+  # 可选：HTTPS 反代（免费域名 DuckDNS / sslip.io）
+  # 启用：编辑 deploy/Caddyfile 里的域名 → docker compose --profile https up -d
+  caddy:
+    image: caddy:2-alpine
+    container_name: musicplayer-caddy
+    restart: unless-stopped
+    profiles: ["https"]
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./data/caddy:/data
+      - ./data/caddy-config:/config

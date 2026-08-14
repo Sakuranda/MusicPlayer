@@ -1,0 +1,210 @@
+import { useMemo, useState } from 'react'
+import {
+  AlertTriangle,
+  Disc3,
+  Download,
+  Loader2,
+  Play,
+  RefreshCw,
+  Search,
+} from 'lucide-react'
+import { api } from '../lib/api'
+import { usePlayer } from '../hooks/usePlayer'
+import type { Song } from '../types'
+
+interface Props {
+  songs: Song[]
+  serverOk: boolean | null
+  onRefresh: () => void
+  onGoImport: () => void
+}
+
+function Cover({ song, className }: { song: Song; className?: string }) {
+  const [failed, setFailed] = useState(false)
+  const url = api.coverUrl(song)
+  if (!url || failed) {
+    return (
+      <div className={`flex items-center justify-center bg-panel2 ${className ?? ''}`}>
+        <Disc3 size={28} className="text-faint" />
+      </div>
+    )
+  }
+  return (
+    <img
+      src={url}
+      alt=""
+      loading="lazy"
+      onError={() => setFailed(true)}
+      className={`object-cover ${className ?? ''}`}
+    />
+  )
+}
+
+export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: Props) {
+  const { playSong, playQueue, current, playing } = usePlayer()
+  const [query, setQuery] = useState('')
+
+  const ready = useMemo(() => songs.filter((s) => s.status === 'ready'), [songs])
+  const others = useMemo(() => songs.filter((s) => s.status !== 'ready'), [songs])
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return ready
+    return ready.filter(
+      (s) =>
+        s.title.toLowerCase().includes(q) ||
+        s.artist.toLowerCase().includes(q) ||
+        (s.album || '').toLowerCase().includes(q) ||
+        (s.raw_title || '').toLowerCase().includes(q),
+    )
+  }, [ready, query])
+
+  return (
+    <div className="max-w-6xl mx-auto px-8 pt-10">
+      <div className="flex items-end justify-between mb-8">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight mb-1.5">曲库</h1>
+          <p className="text-sm text-muted">
+            {ready.length} 首歌曲{others.length > 0 ? ` · ${others.length} 首处理中/失败` : ''}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="搜索歌曲、歌手…"
+              className="w-56 bg-panel border border-line rounded-xl pl-9 pr-3 py-2 text-sm placeholder:text-faint focus:outline-none focus:border-accent/50 transition-colors"
+            />
+          </div>
+          <button
+            onClick={onRefresh}
+            title="刷新"
+            className="p-2.5 rounded-xl bg-panel border border-line text-muted hover:text-ink transition-colors"
+          >
+            <RefreshCw size={15} />
+          </button>
+          <button
+            onClick={() => playQueue(filtered)}
+            disabled={!filtered.length}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-accent hover:bg-accent-soft text-white text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Play size={15} fill="currentColor" /> 播放全部
+          </button>
+        </div>
+      </div>
+
+      {serverOk === false && (
+        <div className="flex items-center gap-3 bg-danger/10 border border-danger/30 rounded-2xl px-5 py-4 mb-6 text-sm">
+          <AlertTriangle size={17} className="text-danger shrink-0" />
+          无法连接服务器。请到「设置」检查服务器地址，或确认服务器已部署。
+        </div>
+      )}
+
+      {ready.length === 0 && others.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-28 text-center">
+          <div className="w-20 h-20 rounded-3xl bg-accent-dim flex items-center justify-center mb-6">
+            <Disc3 size={36} className="text-accent" />
+          </div>
+          <h2 className="text-xl font-medium mb-2">曲库还是空的</h2>
+          <p className="text-sm text-muted mb-6 max-w-sm">
+            粘贴一个 B 站收藏夹链接，自动解析歌曲名、歌手、歌词并下载音频
+          </p>
+          <button
+            onClick={onGoImport}
+            className="flex items-center gap-2 px-5 py-3 rounded-xl bg-accent hover:bg-accent-soft text-white text-sm font-medium transition-colors"
+          >
+            <Download size={16} /> 导入第一个收藏夹
+          </button>
+        </div>
+      ) : (
+        <>
+          {filtered.length > 0 ? (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              {filtered.map((song, i) => {
+                const isCurrent = current?.id === song.id
+                return (
+                  <div
+                    key={song.id}
+                    onClick={() => playSong(song, filtered)}
+                    className="group hover-lift bg-panel border border-line rounded-2xl overflow-hidden cursor-pointer fade-in-up"
+                    style={{ animationDelay: `${Math.min(i * 25, 300)}ms` }}
+                  >
+                    <div className="relative aspect-square overflow-hidden bg-panel2">
+                      <Cover song={song} className="w-full h-full transition-transform duration-300 group-hover:scale-105" />
+                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+                        <div className="w-12 h-12 rounded-full bg-white/95 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all translate-y-2 group-hover:translate-y-0">
+                          {isCurrent && playing ? (
+                            <Loader2 size={18} className="text-bg spin" />
+                          ) : (
+                            <Play size={18} className="text-bg ml-0.5" fill="currentColor" />
+                          )}
+                        </div>
+                      </div>
+                      {isCurrent && (
+                        <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-accent text-white text-[10px] font-medium">
+                          播放中
+                        </div>
+                      )}
+                    </div>
+                    <div className="p-3.5">
+                      <div className="font-medium text-sm truncate" title={song.title}>
+                        {song.title}
+                      </div>
+                      <div className="text-xs text-muted truncate mt-0.5" title={song.artist}>
+                        {song.artist}
+                        {song.album ? ` · ${song.album}` : ''}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <p className="text-sm text-muted py-12 text-center">没有匹配的歌曲</p>
+          )}
+
+          {others.length > 0 && (
+            <div className="mt-10">
+              <h2 className="text-sm font-medium text-muted mb-3">处理中 / 失败的条目</h2>
+              <div className="space-y-2">
+                {others.map((song) => (
+                  <div
+                    key={song.id}
+                    className="flex items-center gap-3 bg-panel border border-line rounded-xl px-4 py-3"
+                  >
+                    <div className="w-10 h-10 rounded-lg overflow-hidden bg-panel2 shrink-0">
+                      <Cover song={song} className="w-full h-full" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm truncate">{song.title} — {song.artist}</div>
+                      <div className="text-[11px] text-faint truncate mt-0.5">{song.raw_title}</div>
+                    </div>
+                    {song.status === 'downloading' && (
+                      <span className="flex items-center gap-1.5 text-xs text-accent">
+                        <Loader2 size={13} className="spin" /> 下载中
+                      </span>
+                    )}
+                    {song.status === 'pending' && (
+                      <span className="text-xs text-faint">待下载</span>
+                    )}
+                    {song.status === 'error' && (
+                      <span
+                        className="text-xs text-danger max-w-[220px] truncate"
+                        title={song.error || ''}
+                      >
+                        <AlertTriangle size={12} className="inline mr-1" />
+                        {song.error || '失败'}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}

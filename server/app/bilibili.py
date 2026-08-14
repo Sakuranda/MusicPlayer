@@ -1,0 +1,127 @@
+"""B 站接口封装：收藏夹列表 / 视频详情 / 标签。
+
+公开收藏夹无需登录；私密收藏夹需携带 SESSDATA 等 Cookie。
+"""
+import re
+import threading
+import time
+from typing import Optional
+
+import httpx
+
+from .config import BILI_HEADERS
+
+FAV_API = "https://api.bilibili.com/x/v3/fav/resource/list"
+VIEW_API = "https://api.bilibili.com/x/web-interface/view"
+TAGS_API = "https://api.bilibili.com/x/tag/archive/tags"
+
+# 简单全局限速：避免持续高频请求触发 412 反爬
+_rate_lock = threading.Lock()
+_last_call = 0.0
+_MIN_INTERVAL = 0.25
+
+
+def _throttle():
+    global _last_call
+    with _rate_lock:
+        wait = _MIN_INTERVAL - (time.monotonic() - _last_call)
+        if wait > 0:
+            time.sleep(wait)
+        _last_call = time.monotonic()
+
+
+class BiliError(Exception):
+    pass
+
+
+def parse_fav_url(url: str) -> str:
+    """从收藏夹链接中提取 media_id。
+
+    支持:
+    - https://space.bilibili.com/{mid}/favlist?fid={fid}
+      → media_id = int(f"{fid}{str(mid)[-2:]}")（fid + UP主 uid 后两位，已实测验证）
+    - https://www.bilibili.com/medialist/detail/ml{mid} → mid 即 media_id
+    """
+    url = url.strip()
+    m = re.search(r"medialist/detail/ml(\d+)", url)
+    if m:
+        return m.group(1)
+    m_mid = re.search(r"space\.bilibili\.com/(\d+)", url)
+    m_fid = re.search(r"[?&]fid=(\d+)", url)
+    if m_mid and m_fid:
+        mid, fid = m_mid.group(1), m_fid.group(1)
+        return f"{fid}{mid[-2:]}"
+    raise BiliError("无法从链接中识别收藏夹 ID，请提供形如 …/favlist?fid=xxx 或 …/medialist/detail/mlxxx 的链接")
+
+
+def _client(cookie: Optional[str] = None) -> httpx.Client:
+    headers = dict(BILI_HEADERS)
+    if cookie:
+        headers["Cookie"] = cookie
+    return httpx.Client(headers=headers, timeout=30, follow_redirects=True)
+
+
+def fetch_favorites(media_id: str, cookie: Optional[str] = None, page_size: int = 20):
+    """分页拉取收藏夹全部视频，返回 (收藏夹标题, [视频信息...])。"""
+    client = _client(cookie)
+    pn = 1
+    items = []
+    while True:
+        _throttle()
+        r = client.get(
+            FAV_API,
+            params={"media_id": media_id, "pn": pn, "ps": page_size, "platform": "web"},
+        )
+        data = r.json()
+        if data.get("code") != 0 or not data.get("data"):
+            if pn == 1:
+                msg = data.get("message", "未知错误")
+                code = data.get("code")
+                if code in (-403, -101):
+                    raise BiliError("该收藏夹为私密或不存在，请检查链接，或在导入时粘贴你的 B 站 Cookie")
+                raise BiliError(f"获取收藏夹失败: {msg} (code={code})")
+            break  # 翻到末页，data 为 null
+        info = data["data"]["info"]
+        medias = data["data"].get("medias") or []
+        for m in medias:
+            if m.get("type") != 2:  # 只要视频（跳过音频/合集等）
+                continue
+            items.append(
+                {
+                    "bvid": m["bvid"],
+                    "raw_title": m["title"],
+                    "cover_url": m.get("cover", ""),
+                    "duration": m.get("duration", 0),
+                    "uploader": (m.get("upper") or {}).get("name", ""),
+                    "uploader_mid": (m.get("upper") or {}).get("mid", 0),
+                }
+            )
+        if not data["data"].get("has_more"):
+            break
+        pn += 1
+        time.sleep(0.3)
+    return info.get("title", "B站收藏夹"), items
+
+
+def fetch_tags(bvid: str, cookie: Optional[str] = None) -> list[str]:
+    """获取视频标签（虚拟主播翻唱常把歌手名放在标签里）。"""
+    try:
+        _throttle()
+        with _client(cookie) as client:
+            r = client.get(TAGS_API, params={"bvid": bvid})
+            data = r.json()
+            if data.get("code") == 0:
+                return [t.get("tag_name", "") for t in data.get("data") or []]
+    except Exception:
+        pass
+    return []
+
+
+def fetch_detail(bvid: str, cookie: Optional[str] = None) -> dict:
+    """获取视频详情（用于兜底补全标题/UP主）。"""
+    with _client(cookie) as client:
+        r = client.get(VIEW_API, params={"bvid": bvid})
+        data = r.json()
+        if data.get("code") != 0:
+            raise BiliError(f"获取视频 {bvid} 详情失败: {data.get('message')}")
+        return data["data"]
