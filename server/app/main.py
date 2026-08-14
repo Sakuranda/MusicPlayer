@@ -117,11 +117,35 @@ def song_detail(sid: int):
 @app.patch("/api/songs/{sid}")
 def song_update(sid: int, req: SongUpdate):
     conn = get_conn()
-    if not get_song(conn, sid):
+    song = get_song(conn, sid)
+    if not song:
         raise HTTPException(404, "歌曲不存在")
     fields = {k: v for k, v in req.model_dump().items() if v is not None}
     update_song(conn, sid, **fields)
+    _retag_file(song, fields)
     return get_song(conn, sid)
+
+
+def _retag_file(song: dict, fields: dict) -> None:
+    """把改动的元数据写回音频文件标签（Navidrome/iOS 同步）。"""
+    if not song.get("file_path"):
+        return
+    path = MUSIC_DIR / song["file_path"]
+    if not path.exists():
+        return
+    try:
+        from mutagen.mp4 import MP4
+        audio = MP4(str(path))
+        tags = audio.tags or {}
+        if fields.get("title"):
+            tags["\xa9nam"] = fields["title"]
+        if fields.get("artist"):
+            tags["\xa9ART"] = fields["artist"]
+        if fields.get("album"):
+            tags["\xa9alb"] = fields["album"]
+        audio.save()
+    except Exception:  # noqa: BLE001
+        pass  # 标签写入失败不影响数据库更新
 
 
 @app.delete("/api/songs/{sid}")

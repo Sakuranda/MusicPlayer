@@ -4,9 +4,11 @@ import {
   Disc3,
   Download,
   Loader2,
+  Pencil,
   Play,
   RefreshCw,
   Search,
+  X,
 } from 'lucide-react'
 import { api } from '../lib/api'
 import { usePlayer } from '../hooks/usePlayer'
@@ -40,12 +42,116 @@ function Cover({ song, className }: { song: Song; className?: string }) {
   )
 }
 
+function EditModal({
+  song,
+  onClose,
+  onSaved,
+}: {
+  song: Song
+  onClose: () => void
+  onSaved: (s: Song) => void
+}) {
+  const [title, setTitle] = useState(song.title)
+  const [artist, setArtist] = useState(song.artist)
+  const [album, setAlbum] = useState(song.album || '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const save = async () => {
+    setSaving(true)
+    setError('')
+    try {
+      const updated = await api.updateSong(song.id, {
+        title: title.trim() || song.title,
+        artist: artist.trim() || song.artist,
+        album: album.trim(),
+      })
+      onSaved(updated)
+      onClose()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center fade-in-up"
+      onClick={onClose}
+    >
+      <div
+        className="w-[420px] max-w-[92vw] bg-panel border border-line rounded-2xl p-6"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="text-base font-medium">编辑歌曲信息</h3>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-muted hover:text-ink transition-colors">
+            <X size={16} />
+          </button>
+        </div>
+
+        <label className="block text-xs text-muted mb-1.5">歌曲名</label>
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          autoFocus
+          className="w-full bg-bg2 border border-line rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-accent/60 transition-colors mb-4"
+        />
+        <label className="block text-xs text-muted mb-1.5">歌手</label>
+        <input
+          value={artist}
+          onChange={(e) => setArtist(e.target.value)}
+          className="w-full bg-bg2 border border-line rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-accent/60 transition-colors mb-4"
+        />
+        <label className="block text-xs text-muted mb-1.5">专辑（可选）</label>
+        <input
+          value={album}
+          onChange={(e) => setAlbum(e.target.value)}
+          className="w-full bg-bg2 border border-line rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-accent/60 transition-colors"
+        />
+
+        <div className="text-[11px] text-faint mt-2">
+          原标题：{song.raw_title} · UP主：{song.uploader}
+        </div>
+
+        {error && <div className="text-xs text-danger mt-3">{error}</div>}
+
+        <div className="flex justify-end gap-2 mt-5">
+          <button
+            onClick={onClose}
+            className="px-4 py-2.5 rounded-xl bg-panel2 border border-line text-sm text-muted hover:text-ink transition-colors"
+          >
+            取消
+          </button>
+          <button
+            onClick={save}
+            disabled={saving}
+            className="px-4 py-2.5 rounded-xl bg-accent hover:bg-accent-soft text-white text-sm font-medium transition-colors disabled:opacity-50"
+          >
+            {saving ? '保存中…' : '保存'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: Props) {
   const { playSong, playQueue, current, playing } = usePlayer()
   const [query, setQuery] = useState('')
+  const [editing, setEditing] = useState<Song | null>(null)
+  const [localSongs, setLocalSongs] = useState(songs)
 
-  const ready = useMemo(() => songs.filter((s) => s.status === 'ready'), [songs])
-  const others = useMemo(() => songs.filter((s) => s.status !== 'ready'), [songs])
+  // 外部刷新时同步
+  const [lastSynced, setLastSynced] = useState(songs)
+  if (songs !== lastSynced) {
+    setLastSynced(songs)
+    setLocalSongs(songs)
+  }
+
+  const ready = useMemo(() => localSongs.filter((s) => s.status === 'ready'), [localSongs])
+  const others = useMemo(() => localSongs.filter((s) => s.status !== 'ready'), [localSongs])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -156,6 +262,18 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
                         {song.artist}
                         {song.album ? ` · ${song.album}` : ''}
                       </div>
+                      <div className="flex justify-end mt-1.5">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setEditing(song)
+                          }}
+                          className="p-1.5 rounded-lg text-faint hover:text-accent hover:bg-accent-dim transition-colors"
+                          title="编辑歌曲信息"
+                        >
+                          <Pencil size={13} />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )
@@ -204,6 +322,17 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
             </div>
           )}
         </>
+      )}
+
+      {editing && (
+        <EditModal
+          song={editing}
+          onClose={() => setEditing(null)}
+          onSaved={(updated) => {
+            setLocalSongs((prev) => prev.map((s) => (s.id === updated.id ? updated : s)))
+            onRefresh()
+          }}
+        />
       )}
     </div>
   )
