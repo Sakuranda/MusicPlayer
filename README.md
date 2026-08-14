@@ -55,8 +55,12 @@ curl -X POST "http://localhost:4533/auth/createAdmin?username=YOUR_NAME&password
 
 | 用途 | 地址 |
 |---|---|
-| 网页播放器 + API | `http://45.125.33.88:8080` |
+| 网页播放器（HTTPS，推荐） | `https://music.sakuranda.site` · `https://musicplayer.sakuranda.site` |
+| 网页播放器（裸 IP 直连） | `http://45.125.33.88:8080` |
 | iOS 曲库服务 (Subsonic) | `http://45.125.33.88:4533` |
+
+> `music.sakuranda.site` 由服务器上的系统级 Caddy（`/etc/caddy/`）反代到 8080；
+> `musicplayer.sakuranda.site` 需在 Cloudflare 添加 A 记录 → `45.125.33.88` 后自动签发证书（Caddy 自动重试）。
 
 ### iOS 播放（Amperfy）
 
