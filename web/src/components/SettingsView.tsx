@@ -34,7 +34,7 @@ export default function SettingsView({ onSaved }: Props) {
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-8 pt-10">
+    <div className="max-w-3xl mx-auto px-4 pt-6 sm:px-6 md:px-8 md:pt-10">
       <h1 className="text-3xl font-semibold tracking-tight mb-8">设置</h1>
 
       {/* 服务器连接 */}

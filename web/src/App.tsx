@@ -35,9 +35,9 @@ export default function App() {
 
   return (
     <PlayerProvider>
-      <div className="flex h-full">
+      <div className="flex h-full flex-col md:flex-row">
         <Sidebar view={view} setView={setView} serverOk={serverOk} />
-        <main className="flex-1 min-w-0 overflow-y-auto pb-28">
+        <main className="flex-1 min-w-0 overflow-y-auto pt-16 pb-28 md:pt-0">
           {view === 'library' && (
             <LibraryView
               songs={songs}

@@ -173,12 +173,13 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
   }
 
   const progress = detail?.job
+  const progressSongs = songs.filter((song) => selected.has(song.id))
   const pct = progress && progress.total > 0
     ? Math.round(((progress.done + progress.failed) / progress.total) * 100)
     : 0
 
   return (
-    <div className="max-w-4xl mx-auto px-8 pt-10">
+    <div className="max-w-4xl mx-auto px-4 pt-6 sm:px-6 md:px-8 md:pt-10">
       {/* ---------- 第一步：粘贴链接 ---------- */}
       {step === 'input' && (
         <div className="fade-in-up">
@@ -450,7 +451,7 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
           </div>
 
           <div className="space-y-2 max-h-[46vh] overflow-y-auto">
-            {songs.map((song) => (
+            {progressSongs.map((song) => (
               <div
                 key={song.id}
                 className="flex items-center gap-3 bg-panel border border-line rounded-xl px-4 py-2.5"

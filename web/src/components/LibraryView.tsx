@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   Disc3,
@@ -15,7 +15,7 @@ import {
   X,
 } from 'lucide-react'
 import { api } from '../lib/api'
-import { usePlayer } from '../hooks/usePlayer'
+import { usePlayer } from '../hooks/playerContext'
 import { fmtTime } from '../lib/lrc'
 import type { Song } from '../types'
 
@@ -119,7 +119,7 @@ function EditModal({
       onClick={onClose}
     >
       <div
-        className="w-[480px] max-w-[92vw] bg-panel border border-line rounded-2xl p-6"
+        className="w-[480px] max-w-[92vw] max-h-[90vh] overflow-y-auto bg-panel border border-line rounded-2xl p-5 sm:p-6"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-5">
@@ -291,11 +291,9 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
   const [localSongs, setLocalSongs] = useState(songs)
 
   // 外部刷新时同步
-  const [lastSynced, setLastSynced] = useState(songs)
-  if (songs !== lastSynced) {
-    setLastSynced(songs)
+  useEffect(() => {
     setLocalSongs(songs)
-  }
+  }, [songs])
 
   const ready = useMemo(() => localSongs.filter((s) => s.status === 'ready'), [localSongs])
   const others = useMemo(() => localSongs.filter((s) => s.status !== 'ready'), [localSongs])
@@ -313,22 +311,22 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
   }, [ready, query])
 
   return (
-    <div className="max-w-6xl mx-auto px-8 pt-10">
-      <div className="flex items-end justify-between mb-8">
+    <div className="max-w-6xl mx-auto px-4 pt-6 sm:px-6 md:px-8 md:pt-10">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between mb-8">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight mb-1.5">曲库</h1>
           <p className="text-sm text-muted">
             {ready.length} 首歌曲{others.length > 0 ? ` · ${others.length} 首处理中/失败` : ''}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="relative">
+        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+          <div className="relative flex-1 sm:flex-none">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="搜索歌曲、歌手…"
-              className="w-56 bg-panel border border-line rounded-xl pl-9 pr-3 py-2 text-sm placeholder:text-faint focus:outline-none focus:border-accent/50 transition-colors"
+              className="w-full sm:w-56 bg-panel border border-line rounded-xl pl-9 pr-3 py-2 text-sm placeholder:text-faint focus:outline-none focus:border-accent/50 transition-colors"
             />
           </div>
           <button
@@ -374,7 +372,7 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
       ) : (
         <>
           {filtered.length > 0 ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {filtered.map((song, i) => {
                 const isCurrent = current?.id === song.id
                 return (

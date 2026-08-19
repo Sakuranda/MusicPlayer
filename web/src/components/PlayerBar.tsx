@@ -13,7 +13,7 @@ import {
   Volume2,
   X,
 } from 'lucide-react'
-import { usePlayer } from '../hooks/usePlayer'
+import { usePlayer } from '../hooks/playerContext'
 import { api } from '../lib/api'
 import { currentLineIndex, fmtTime, lrcToPlain, parseLrc } from '../lib/lrc'
 
@@ -87,8 +87,8 @@ export default function PlayerBar() {
     <>
       {/* 底部播放条 */}
       <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-line bg-bg2/90 backdrop-blur-xl">
-        <div className="max-w-[1400px] mx-auto px-4 h-[76px] flex items-center gap-4">
-          <div className="flex items-center gap-3 w-72 min-w-0">
+        <div className="max-w-[1400px] mx-auto px-3 sm:px-4 h-[76px] flex items-center gap-2 sm:gap-4">
+          <div className="flex items-center gap-2.5 w-36 sm:w-56 md:w-72 min-w-0">
             <Cover className="w-12 h-12 rounded-lg shrink-0" />
             <div className="min-w-0">
               <div className="text-sm font-medium truncate">{current.title}</div>
@@ -96,8 +96,8 @@ export default function PlayerBar() {
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 mx-auto">
-            <button onClick={prev} className="p-2 rounded-full text-muted hover:text-ink transition-colors">
+          <div className="flex items-center gap-1.5 sm:mx-auto">
+            <button onClick={prev} className="hidden sm:block p-2 rounded-full text-muted hover:text-ink transition-colors">
               <SkipBack size={19} fill="currentColor" />
             </button>
             <button
@@ -106,12 +106,12 @@ export default function PlayerBar() {
             >
               {playing ? <Pause size={19} fill="currentColor" /> : <Play size={19} fill="currentColor" className="ml-0.5" />}
             </button>
-            <button onClick={next} className="p-2 rounded-full text-muted hover:text-ink transition-colors">
+            <button onClick={next} className="hidden sm:block p-2 rounded-full text-muted hover:text-ink transition-colors">
               <SkipForward size={19} fill="currentColor" />
             </button>
           </div>
 
-          <div className="flex-1 max-w-xl flex items-center gap-3">
+          <div className="hidden lg:flex flex-1 max-w-xl items-center gap-3">
             <span className="text-[11px] text-faint tabular-nums w-9 text-right">{fmtTime(time)}</span>
             <input
               type="range"
@@ -142,7 +142,7 @@ export default function PlayerBar() {
 
           <button
             onClick={() => setExpanded((v) => !v)}
-            className="p-2 rounded-lg text-muted hover:text-ink transition-colors"
+            className="ml-auto p-2 rounded-lg text-muted hover:text-ink transition-colors"
             title={expanded ? '收起' : '展开播放器（歌词）'}
           >
             {expanded ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
@@ -153,7 +153,7 @@ export default function PlayerBar() {
       {/* 展开的全屏播放器 + 歌词 */}
       {expanded && (
         <div className="fixed inset-0 z-50 bg-bg/97 backdrop-blur-2xl flex flex-col fade-in-up">
-          <div className="flex items-center justify-between px-8 pt-6">
+          <div className="flex items-center justify-between px-4 pt-4 sm:px-8 sm:pt-6">
             <div className="flex items-center gap-2 text-sm text-muted">
               <ListMusic size={15} className="text-accent" />
               {queue.length > 1 ? `播放队列 ${queue.length} 首` : '单曲播放'}
@@ -175,7 +175,7 @@ export default function PlayerBar() {
             </div>
           </div>
 
-          <div className="flex-1 min-h-0 flex items-center justify-center gap-16 px-12 py-8 max-w-6xl mx-auto w-full">
+          <div className="flex-1 min-h-0 flex items-center justify-center gap-8 lg:gap-16 px-4 sm:px-8 lg:px-12 py-6 lg:py-8 max-w-6xl mx-auto w-full">
             {/* 封面（静态） */}
             <div className="hidden md:flex flex-col items-center gap-8">
               <div className="w-72 h-72 rounded-3xl overflow-hidden shadow-2xl">

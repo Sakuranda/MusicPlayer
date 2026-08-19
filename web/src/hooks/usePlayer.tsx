@@ -1,7 +1,5 @@
 import {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useRef,
   useState,
@@ -9,24 +7,7 @@ import {
 } from 'react'
 import { api } from '../lib/api'
 import type { Song } from '../types'
-
-interface PlayerState {
-  current: Song | null
-  queue: Song[]
-  playing: boolean
-  time: number
-  duration: number
-  volume: number
-  playSong: (song: Song, queue?: Song[]) => void
-  toggle: () => void
-  next: () => void
-  prev: () => void
-  seek: (t: number) => void
-  setVolume: (v: number) => void
-  playQueue: (songs: Song[], index?: number) => void
-}
-
-const Ctx = createContext<PlayerState | null>(null)
+import { PlayerContext } from './playerContext'
 
 export function PlayerProvider({ children }: { children: ReactNode }) {
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -149,16 +130,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <Ctx.Provider
+    <PlayerContext.Provider
       value={{ current, queue, playing, time, duration, volume, playSong, toggle, next, prev, seek, setVolume, playQueue }}
     >
       {children}
-    </Ctx.Provider>
+    </PlayerContext.Provider>
   )
-}
-
-export function usePlayer(): PlayerState {
-  const ctx = useContext(Ctx)
-  if (!ctx) throw new Error('usePlayer must be used within PlayerProvider')
-  return ctx
 }
