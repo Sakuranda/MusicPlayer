@@ -313,6 +313,31 @@ def write_lrc_sidecar(rel_path: str, lrc: str) -> None:
         pass
 
 
+def remove_lrc_sidecar(rel_path: str) -> None:
+    """删除音频旁的歌词文件。"""
+    try:
+        (MUSIC_DIR / rel_path).with_suffix(".lrc").unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def update_embedded_lyrics(rel_path: str, text: str | None) -> None:
+    """同步 M4A 内嵌歌词；失败不影响数据库与侧车歌词。"""
+    path = MUSIC_DIR / rel_path
+    if not path.exists():
+        return
+    try:
+        audio = MP4(str(path))
+        tags = audio.tags or {}
+        if text:
+            tags["\xa9lyr"] = text
+        else:
+            tags.pop("\xa9lyr", None)
+        audio.save()
+    except (OSError, mutagen.MutagenError):
+        pass
+
+
 def save_cover(cover_bytes: bytes, bvid: str) -> str | None:
     """缓存封面文件，返回文件名。"""
     if not cover_bytes:

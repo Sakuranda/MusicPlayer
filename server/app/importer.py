@@ -118,13 +118,21 @@ def _download_one(conn, song: dict, cookie_file: Path | None):
     try:
         update_song(conn, sid, status="downloading", error=None)
 
-        # 歌词（下载前先匹配，失败也不阻塞）
-        try:
-            hit = lyrics.fetch_lyrics(song["title"], song["artist"], song["duration"] or 0)
-            update_song(conn, sid, lyrics=hit["plain"], lrc=hit["lrc"],
-                        lyrics_source=hit["source"])
-        except Exception:
-            pass
+        # 用户上传的歌词优先且永不被自动匹配覆盖。旧实现更新数据库后仍读取
+        # song 旧快照，导致侧车与内嵌标签没有歌词；这里显式保留本次结果。
+        lyric_plain = song.get("lyrics") or ""
+        lrc_text = song.get("lrc") or ""
+        lyric_source = song.get("lyrics_source") or ""
+        if song.get("lyrics_enabled", True) and lyric_source != "upload":
+            try:
+                hit = lyrics.fetch_lyrics(song["title"], song["artist"], song["duration"] or 0)
+                lyric_plain = hit["plain"]
+                lrc_text = hit["lrc"]
+                lyric_source = hit["source"]
+                update_song(conn, sid, lyrics=lyric_plain, lrc=lrc_text,
+                            lyrics_source=lyric_source)
+            except Exception:
+                pass
 
         result = downloader.download_audio(
             song["bvid"], cookie_file,
@@ -134,10 +142,9 @@ def _download_one(conn, song: dict, cookie_file: Path | None):
         cover_bytes = downloader.optimize_cover(result["cover"])
         rel = downloader.tag_and_store(
             result["file"], song["title"], song["artist"], song["album"],
-            cover_bytes, song["bvid"],
+            cover_bytes, song["bvid"], lrc_text or lyric_plain or None,
         )
         # 歌词侧车文件（Navidrome/Amperfy 读取同名 .lrc）
-        lrc_text = song.get("lrc")
         if lrc_text:
             downloader.write_lrc_sidecar(rel, lrc_text)
         cover_name = downloader.save_cover(cover_bytes, song["bvid"]) if cover_bytes else None
@@ -173,7 +180,8 @@ def _download_one(conn, song: dict, cookie_file: Path | None):
             pass
 
 
-def start_download(job_id: str, bvids: list[str] | None = None):
+def start_download(job_id: str, bvids: list[str] | None = None,
+                   fetch_lyrics: bool = True):
     """把歌曲加入进程级共享队列；可指定 bvids 只下载勾选的歌曲。
 
     返回本次是否真正启动及排队数量。同一任务正在执行时重复调用是幂等的，
@@ -238,7 +246,10 @@ def start_download(job_id: str, bvids: list[str] | None = None):
 
     song_ids = [s["id"] for s in songs]
     for sid in song_ids:
-        update_song(conn, sid, status="pending", error=None)
+        update_song(conn, sid, status="pending", error=None,
+                    lyrics_enabled=int(fetch_lyrics))
+    for song in songs:
+        song["lyrics_enabled"] = fetch_lyrics
     update_job(
         conn,
         job_id,

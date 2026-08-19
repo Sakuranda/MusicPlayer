@@ -8,9 +8,14 @@
 均失败则返回空，前端不显示歌词即可。
 """
 import re
+import threading
+import time
 from difflib import SequenceMatcher
+from functools import lru_cache
 
 import httpx
+
+from .config import LYRICS_API_INTERVAL
 
 UA = "MusicPlayer/1.0 (https://github.com/Sakuranda/MusicPlayer)"
 
@@ -19,6 +24,53 @@ NETEASE_SEARCH = "https://music.163.com/api/search/get/web"
 NETEASE_LYRIC = "https://music.163.com/api/song/lyric"
 QQ_SEARCH = "https://c.y.qq.com/soso/fcgi-bin/client_search_cp"
 QQ_LYRIC = "https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg"
+
+_rate_lock = threading.Lock()
+_last_request = 0.0
+
+
+def _throttle() -> None:
+    """多个下载线程共享歌词 API 限速，避免大收藏夹形成请求尖峰。"""
+    global _last_request
+    with _rate_lock:
+        wait = LYRICS_API_INTERVAL - (time.monotonic() - _last_request)
+        if wait > 0:
+            time.sleep(wait)
+        _last_request = time.monotonic()
+
+
+def lrc_to_plain(text: str) -> str:
+    """移除 LRC 元数据/时间轴，得到适合内嵌和普通展示的纯文本。"""
+    lines = []
+    for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        plain = re.sub(r"\[[^\]]*]", "", line).strip()
+        if plain:
+            lines.append(plain)
+    return "\n".join(lines)
+
+
+def decode_lyrics_file(data: bytes) -> str:
+    """兼容常见歌词文件编码，并拒绝二进制/空文件。"""
+    if not data:
+        raise ValueError("歌词文件是空的")
+    if len(data) > 1024 * 1024:
+        raise ValueError("歌词文件不能超过 1 MB")
+    encodings = ["utf-8-sig"]
+    if data.startswith((b"\xff\xfe", b"\xfe\xff")) or b"\x00" in data[:100]:
+        encodings.append("utf-16")
+    encodings.append("gb18030")
+    for encoding in encodings:
+        try:
+            text = data.decode(encoding)
+            break
+        except UnicodeDecodeError:
+            continue
+    else:
+        raise ValueError("无法识别歌词编码，请保存为 UTF-8 后重试")
+    text = text.replace("\x00", "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not text:
+        raise ValueError("歌词文件没有可用文字")
+    return text + "\n"
 
 
 def _clean(q: str) -> str:
@@ -50,6 +102,7 @@ def _lrclib(track: str, artist: str = "", duration: float = 0) -> tuple[str, str
         params["duration"] = int(round(duration))
     try:
         with httpx.Client(timeout=15) as c:
+            _throttle()
             r = c.get(LRCLIB_SEARCH, params=params, headers={"User-Agent": UA})
             if r.status_code != 200:
                 return None
@@ -80,6 +133,7 @@ def _netease(track: str, artist: str = "") -> tuple[str, str, str] | None:
     try:
         with httpx.Client(timeout=15, headers=headers) as c:
             q = f"{track} {artist}".strip()
+            _throttle()
             r = c.get(NETEASE_SEARCH, params={"s": q, "type": 1, "offset": 0, "limit": 5})
             data = r.json()
             songs = (data.get("result") or {}).get("songs") or []
@@ -93,6 +147,7 @@ def _netease(track: str, artist: str = "") -> tuple[str, str, str] | None:
                     best_song, best_score = s, score
             if best_score < 0.6:
                 return None
+            _throttle()
             r2 = c.get(NETEASE_LYRIC, params={"id": best_song["id"], "lv": 1, "kv": 1, "tv": -1})
             ld = r2.json()
             lrc = (ld.get("lrc") or {}).get("lyric") or ""
@@ -110,6 +165,7 @@ def _qq(track: str, artist: str = "") -> tuple[str, str, str] | None:
     try:
         with httpx.Client(timeout=15, headers=headers) as c:
             q = f"{track} {artist}".strip()
+            _throttle()
             r = c.get(QQ_SEARCH, params={"w": q, "format": "json", "p": 1, "n": 5})
             data = r.json()
             songs = (data.get("data") or {}).get("song", {}).get("list") or []
@@ -123,6 +179,7 @@ def _qq(track: str, artist: str = "") -> tuple[str, str, str] | None:
                     best_song, best_score = s, score
             if best_score < 0.6:
                 return None
+            _throttle()
             r2 = c.get(QQ_LYRIC, params={"songmid": best_song["songmid"], "format": "json", "nobase64": 1})
             ld = r2.json()
             if ld.get("code") != 0:
@@ -136,6 +193,12 @@ def _qq(track: str, artist: str = "") -> tuple[str, str, str] | None:
 
 
 def fetch_lyrics(title: str, artist: str = "", duration: float = 0) -> dict:
+    """带进程内缓存的歌词查询入口。"""
+    return _fetch_lyrics_cached(title, artist, int(round(duration or 0)))
+
+
+@lru_cache(maxsize=2048)
+def _fetch_lyrics_cached(title: str, artist: str, duration: int) -> dict:
     """对外入口，返回 {"plain": str, "lrc": str, "source": str}。"""
     track, art = _clean(title), _clean(artist)
     if not track:

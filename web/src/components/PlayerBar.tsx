@@ -4,6 +4,8 @@ import {
   ChevronUp,
   Disc3,
   ListMusic,
+  Eye,
+  EyeOff,
   Pause,
   Play,
   SkipBack,
@@ -20,19 +22,32 @@ export default function PlayerBar() {
     usePlayer()
   const [expanded, setExpanded] = useState(false)
   const [lyrics, setLyrics] = useState<string | null>(null)
+  const [lyricsVisible, setLyricsVisible] = useState(
+    () => localStorage.getItem('mp_lyrics_visible') !== 'false',
+  )
   const lyricBoxRef = useRef<HTMLDivElement>(null)
 
+  const currentId = current?.id
+
   useEffect(() => {
-    if (!current) {
+    if (!currentId) {
       setLyrics(null)
       return
     }
     let alive = true
-    api.song(current.id)
+    api.song(currentId)
       .then((s) => alive && setLyrics(s.lrc || s.lyrics || null))
       .catch(() => alive && setLyrics(null))
     return () => { alive = false }
-  }, [current?.id])
+  }, [currentId, expanded])
+
+  const toggleLyrics = () => {
+    setLyricsVisible((visible) => {
+      const next = !visible
+      localStorage.setItem('mp_lyrics_visible', String(next))
+      return next
+    })
+  }
 
   const lrcLines = useMemo(() => parseLrc(lyrics), [lyrics])
   const plain = useMemo(() => (lyrics && !lrcLines.length ? lrcToPlain(lyrics) : ''), [lyrics, lrcLines])
@@ -143,12 +158,21 @@ export default function PlayerBar() {
               <ListMusic size={15} className="text-accent" />
               {queue.length > 1 ? `播放队列 ${queue.length} 首` : '单曲播放'}
             </div>
-            <button
-              onClick={() => setExpanded(false)}
-              className="p-2.5 rounded-xl bg-panel border border-line text-muted hover:text-ink transition-colors"
-            >
-              <X size={17} />
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={toggleLyrics}
+                className="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-panel border border-line text-xs text-muted hover:text-ink transition-colors"
+              >
+                {lyricsVisible ? <EyeOff size={15} /> : <Eye size={15} />}
+                {lyricsVisible ? '关闭歌词' : '显示歌词'}
+              </button>
+              <button
+                onClick={() => setExpanded(false)}
+                className="p-2.5 rounded-xl bg-panel border border-line text-muted hover:text-ink transition-colors"
+              >
+                <X size={17} />
+              </button>
+            </div>
           </div>
 
           <div className="flex-1 min-h-0 flex items-center justify-center gap-16 px-12 py-8 max-w-6xl mx-auto w-full">
@@ -167,7 +191,15 @@ export default function PlayerBar() {
             {/* 歌词 */}
             <div className="flex-1 min-w-0 max-w-xl h-full flex flex-col">
               <div className="flex-1 min-h-0 overflow-y-auto py-16" ref={lyricBoxRef}>
-                {lrcLines.length > 0 ? (
+                {!lyricsVisible ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center">
+                    <EyeOff size={22} className="text-faint mb-3" />
+                    <p className="text-sm text-muted">歌词已关闭</p>
+                    <button onClick={toggleLyrics} className="text-xs text-accent mt-2 hover:text-accent-soft">
+                      重新显示
+                    </button>
+                  </div>
+                ) : lrcLines.length > 0 ? (
                   <div className="flex flex-col items-center gap-3.5">
                     {lrcLines.map((line, i) => {
                       const active = i === activeLine

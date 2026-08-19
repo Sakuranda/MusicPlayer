@@ -25,7 +25,7 @@ async function req<T>(path: string, opts: RequestInit = {}, retried = false): Pr
   const token = getToken()
   const headers: Record<string, string> = { ...(opts.headers as Record<string, string>) }
   if (token) headers['X-Api-Token'] = token
-  if (opts.body) headers['Content-Type'] = 'application/json'
+  if (typeof opts.body === 'string') headers['Content-Type'] = 'application/json'
   let res: Response
   try {
     res = await fetch(getBase() + path, { ...opts, headers })
@@ -64,10 +64,10 @@ export const api = {
   getJob: (id: string) => req<JobDetail>(`/api/jobs/${id}`),
   listJobs: () => req<Job[]>('/api/jobs'),
   deleteJob: (id: string) => req<{ deleted: boolean }>(`/api/jobs/${id}`, { method: 'DELETE' }),
-  startJob: (id: string, bvids: string[]) =>
+  startJob: (id: string, bvids: string[], fetchLyrics = true) =>
     req<{ started: boolean; queued: number; concurrency: number; message: string }>(`/api/jobs/${id}/start`, {
       method: 'POST',
-      body: JSON.stringify({ bvids }),
+      body: JSON.stringify({ bvids, fetch_lyrics: fetchLyrics }),
     }),
 
   songs: () => req<Song[]>('/api/songs'),
@@ -78,6 +78,13 @@ export const api = {
   ) =>
     req<Song>(`/api/songs/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteSong: (id: number) => req<{ deleted: boolean }>(`/api/songs/${id}`, { method: 'DELETE' }),
+  uploadLyrics: (id: number, file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return req<Song>(`/api/songs/${id}/lyrics`, { method: 'PUT', body: form })
+  },
+  deleteLyrics: (id: number) =>
+    req<Song>(`/api/songs/${id}/lyrics`, { method: 'DELETE' }),
 
   streamUrl: (id: number) => withToken(`${getBase()}/api/stream/${id}`),
   coverUrl: (song: Song) => (song.cover ? withToken(`${getBase()}${song.cover}`) : ''),

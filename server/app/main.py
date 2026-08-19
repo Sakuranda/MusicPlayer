@@ -5,7 +5,7 @@ import logging
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -14,6 +14,7 @@ from .bilibili import BiliError
 from .config import API_TOKEN, COVER_DIR, MUSIC_DIR
 from .db import (delete_song, get_conn, get_job, get_song, list_jobs,
                  list_songs, update_song)
+from . import downloader, lyrics
 from .importer import (ImportError, is_job_active, is_song_active,
                        parse_and_store, start_download)
 from .schemas import ImportRequest, SongUpdate, StartRequest
@@ -81,7 +82,11 @@ def job_start(job_id: str, req: StartRequest | None = None):
     if not get_job(conn, job_id):
         raise HTTPException(404, "任务不存在")
     try:
-        result = start_download(job_id, req.bvids if req else None)
+        result = start_download(
+            job_id,
+            req.bvids if req else None,
+            req.fetch_lyrics if req else True,
+        )
     except ImportError as e:
         raise HTTPException(400, str(e)) from e
     return result
@@ -151,6 +156,51 @@ def song_update(sid: int, req: SongUpdate):
     fields = {k: v for k, v in req.model_dump().items() if v is not None}
     update_song(conn, sid, **fields)
     _retag_file(song, fields)
+    return get_song(conn, sid)
+
+
+@app.put("/api/songs/{sid}/lyrics")
+async def song_lyrics_upload(sid: int, file: UploadFile = File(...)):
+    """上传 UTF-8/UTF-16/GB18030 的 .lrc 或 .txt 歌词。"""
+    conn = get_conn()
+    song = get_song(conn, sid)
+    if not song:
+        raise HTTPException(404, "歌曲不存在")
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in (".lrc", ".txt"):
+        raise HTTPException(400, "只支持 .lrc 或 .txt 歌词文件")
+    data = await file.read(1024 * 1024 + 1)
+    await file.close()
+    try:
+        text = lyrics.decode_lyrics_file(data)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    plain = lyrics.lrc_to_plain(text) or text.strip()
+    update_song(
+        conn,
+        sid,
+        lyrics=plain,
+        lrc=text,
+        lyrics_source="upload",
+        lyrics_enabled=1,
+    )
+    if song.get("file_path"):
+        downloader.write_lrc_sidecar(song["file_path"], text)
+        downloader.update_embedded_lyrics(song["file_path"], text)
+    return get_song(conn, sid)
+
+
+@app.delete("/api/songs/{sid}/lyrics")
+def song_lyrics_delete(sid: int):
+    """删除数据库、侧车文件和音频标签中的歌词。"""
+    conn = get_conn()
+    song = get_song(conn, sid)
+    if not song:
+        raise HTTPException(404, "歌曲不存在")
+    update_song(conn, sid, lyrics=None, lrc=None, lyrics_source=None)
+    if song.get("file_path"):
+        downloader.remove_lrc_sidecar(song["file_path"])
+        downloader.update_embedded_lyrics(song["file_path"], None)
     return get_song(conn, sid)
 
 

@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS songs (
     lyrics      TEXT,                   -- 纯文本歌词
     lrc         TEXT,                   -- 逐行时间轴歌词
     lyrics_source TEXT,
+    lyrics_enabled INTEGER NOT NULL DEFAULT 1, -- 是否自动匹配歌词
     status      TEXT NOT NULL DEFAULT 'pending',  -- pending/ready/error
     error       TEXT,
     created_at  TEXT NOT NULL
@@ -58,6 +59,7 @@ MIGRATIONS = [
     "ALTER TABLE songs ADD COLUMN parts TEXT",
     "ALTER TABLE songs ADD COLUMN source_url TEXT",
     "ALTER TABLE songs ADD COLUMN downloaded_cid INTEGER",
+    "ALTER TABLE songs ADD COLUMN lyrics_enabled INTEGER NOT NULL DEFAULT 1",
 ]
 
 
@@ -90,6 +92,7 @@ def _song_row(row: sqlite3.Row) -> dict:
             except json.JSONDecodeError:
                 d[key] = []
     d["cover"] = f"/api/songs/{d['id']}/cover" if d.get("cover_url") else None
+    d["lyrics_enabled"] = bool(d.get("lyrics_enabled", 1))
     return d
 
 

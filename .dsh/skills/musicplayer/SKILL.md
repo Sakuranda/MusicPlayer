@@ -35,7 +35,7 @@ bilibili-research-report.md   B站 API 实测调研（media_id 公式、412 对�
 4. **音质上限 192k AAC**（B 站 UGC 没有 320k）。曲库保留源 AAC/M4A，不为格式偏好二次编码；这是空间、音质和 iOS/Navidrome 兼容性的最佳平衡。封面只存最大 320px 的压缩 JPEG。
 5. **多P支持**：`songs.cid/part_index/part_title/parts` + `source_url`（B站链接）+ `downloaded_cid`（去重）。下载指定 P 用其 cid；重复导入时已下载且分P未变的自动跳过。
 6. **数据库**：SQLite，`db.get_conn()` 每次建新连接并执行 SCHEMA + MIGRATIONS（ALTER TABLE 容错）。**线程必须各用各的连接**（曾因共享连接并发提交报 "cannot commit - no transaction is active"）。加列必须同时加进 SCHEMA 和 MIGRATIONS。
-7. **歌词三级降级**：LRCLIB（带 duration 参数+模糊匹配）→ 网易云（GET 参数、无头可用）→ QQ 音乐（需 y.qq.com Referer）。翻唱曲目查不到是常态，返回空即可。歌词写 `.lrc` 侧车 + MP4 `©lyr` 标签（Navidrome/Amperfy 读取）。
+7. **歌词三级降级**：LRCLIB（带 duration 参数+模糊匹配）→ 网易云（GET 参数、无头可用）→ QQ 音乐（需 y.qq.com Referer），共享全局限速与进程缓存。翻唱曲目查不到是常态。导入可关闭自动查询；用户上传的 `.lrc/.txt` 优先且不可被自动匹配覆盖，并同步 DB、`.lrc` 侧车、MP4 `©lyr` 标签。
 8. **标题解析**（parser.py）：信号优先级 = 《》「」书名号（歌名）＞ 标题切分（含"歌手 - 歌名"逆序、YOASOBI 等原唱歌手名单排除）＞ 标签挖歌名（排除噪音词/原唱歌手名单/运营活动词）＞ 英文短语提取。歌手 = 【】人名（呜米x咩栗 取前者、阿梓歌→阿梓）＞ 标签主播名聚类（阿梓/阿梓从小就很可爱）＞ UP主。启发式不可能全对 —— 预览可编辑是设计的一部分，不要过度调参。
 
 ## 标准工作流
@@ -74,6 +74,7 @@ c.commit()"'
 - ssh 嵌套引号 heredoc 易碎 → 长脚本走 `docker exec -i ... python < 本地文件`
 - 每个收藏夹各建线程池会让并发随任务数倍增，同一任务重复启动还会重复提交 → 使用进程级共享执行器、活跃任务/歌曲集合，并按本次选择重算进度
 - AAC 转 MP3 会增加体积或损失音质；iOS/网页/Navidrome 原生支持 M4A → 保留源 AAC/M4A，只压缩封面并清理重下产生的旧路径文件
+- 歌词查询后只更新 DB、继续读 worker 的旧 song 快照 → `.lrc`/内嵌标签为空；必须把本次 hit 保存在局部变量并传入标签/侧车写入，上传歌词则始终优先
 
 ## 验证清单（每次改动后）
 

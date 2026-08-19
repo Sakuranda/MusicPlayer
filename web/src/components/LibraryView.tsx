@@ -1,15 +1,17 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   Disc3,
   Download,
   ExternalLink,
   Loader2,
+  FileText,
   Pencil,
   Play,
   RefreshCw,
   Search,
   Trash2,
+  Upload,
   X,
 } from 'lucide-react'
 import { api } from '../lib/api'
@@ -59,6 +61,9 @@ function EditModal({
   const [album, setAlbum] = useState(song.album || '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [lyricsSource, setLyricsSource] = useState(song.lyrics_source)
+  const [lyricsBusy, setLyricsBusy] = useState(false)
+  const lyricInputRef = useRef<HTMLInputElement>(null)
 
   const save = async () => {
     setSaving(true)
@@ -78,13 +83,43 @@ function EditModal({
     }
   }
 
+  const uploadLyrics = async (file: File | undefined) => {
+    if (!file) return
+    setLyricsBusy(true)
+    setError('')
+    try {
+      const updated = await api.uploadLyrics(song.id, file)
+      setLyricsSource(updated.lyrics_source)
+      onSaved(updated)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLyricsBusy(false)
+      if (lyricInputRef.current) lyricInputRef.current.value = ''
+    }
+  }
+
+  const removeLyrics = async () => {
+    setLyricsBusy(true)
+    setError('')
+    try {
+      const updated = await api.deleteLyrics(song.id)
+      setLyricsSource(null)
+      onSaved(updated)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLyricsBusy(false)
+    }
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center fade-in-up"
       onClick={onClose}
     >
       <div
-        className="w-[420px] max-w-[92vw] bg-panel border border-line rounded-2xl p-6"
+        className="w-[480px] max-w-[92vw] bg-panel border border-line rounded-2xl p-6"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-5">
@@ -126,6 +161,45 @@ function EditModal({
         >
           在B站打开视频 <ExternalLink size={11} />
         </a>
+
+        <div className="mt-5 rounded-xl border border-line bg-bg2/70 p-3.5">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-accent-dim flex items-center justify-center">
+              <FileText size={15} className="text-accent" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-xs font-medium">歌词文件</div>
+              <div className="text-[11px] text-faint mt-0.5">
+                {lyricsSource ? `当前来源：${lyricsSource === 'upload' ? '手动上传' : lyricsSource}` : '暂时没有歌词'}
+              </div>
+            </div>
+            <input
+              ref={lyricInputRef}
+              type="file"
+              accept=".lrc,.txt,text/plain"
+              className="hidden"
+              onChange={(e) => uploadLyrics(e.target.files?.[0])}
+            />
+            <button
+              onClick={() => lyricInputRef.current?.click()}
+              disabled={lyricsBusy}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-panel2 border border-line text-xs hover:border-accent/50 transition-colors disabled:opacity-50"
+            >
+              {lyricsBusy ? <Loader2 size={13} className="spin" /> : <Upload size={13} />}
+              {lyricsSource ? '替换' : '上传'}
+            </button>
+            {lyricsSource && (
+              <button
+                onClick={removeLyrics}
+                disabled={lyricsBusy}
+                className="px-2.5 py-2 rounded-lg text-xs text-muted hover:text-danger hover:bg-danger/10 transition-colors disabled:opacity-50"
+              >
+                删除
+              </button>
+            )}
+          </div>
+          <p className="text-[10px] text-faint mt-2.5">支持 .lrc 时间轴歌词和 .txt 纯文本，最大 1 MB</p>
+        </div>
 
         {error && <div className="text-xs text-danger mt-3">{error}</div>}
 
@@ -421,6 +495,7 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
           onClose={() => setEditing(null)}
           onSaved={(updated) => {
             setLocalSongs((prev) => prev.map((s) => (s.id === updated.id ? updated : s)))
+            setEditing(updated)
             onRefresh()
           }}
         />

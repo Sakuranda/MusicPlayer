@@ -28,6 +28,7 @@ export interface Song {
   lyrics: string | null
   lrc: string | null
   lyrics_source: string | null
+  lyrics_enabled: boolean
   status: 'pending' | 'downloading' | 'ready' | 'error'
   error: string | null
   created_at: string

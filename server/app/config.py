@@ -38,5 +38,10 @@ try:
 except ValueError:
     BILI_API_INTERVAL = 0.5
 
+try:
+    LYRICS_API_INTERVAL = max(0.1, float(os.environ.get("LYRICS_API_INTERVAL", "0.35")))
+except ValueError:
+    LYRICS_API_INTERVAL = 0.35
+
 # 公网部署时建议设置 API 访问令牌（前端设置页里填同一个值）
 API_TOKEN = os.environ.get("API_TOKEN", "")

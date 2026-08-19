@@ -29,6 +29,7 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
   // 私密收藏夹需要 Cookie；记住在本浏览器，方便反复导入
   const [cookie, setCookie] = useState(() => localStorage.getItem(LS_COOKIE) || '')
   const [album, setAlbum] = useState('')
+  const [autoLyrics, setAutoLyrics] = useState(true)
   const [showCookie, setShowCookie] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -131,7 +132,7 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
             }),
           ),
       )
-      await api.startJob(detail.job.id, bvids)
+      await api.startJob(detail.job.id, bvids, autoLyrics)
       setStep('progress')
       poll()
     } catch (e) {
@@ -296,6 +297,15 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
               全选
             </label>
             <span className="text-xs text-faint">已选 {selected.size}/{songs.length}</span>
+            <label className="ml-auto flex items-center gap-2 text-xs text-muted cursor-pointer">
+              <input
+                type="checkbox"
+                checked={autoLyrics}
+                onChange={(e) => setAutoLyrics(e.target.checked)}
+                className="accent-[#d97757] w-4 h-4"
+              />
+              自动匹配歌词
+            </label>
           </div>
 
           <div className="space-y-2 max-h-[54vh] overflow-y-auto pr-1">
@@ -400,6 +410,9 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
               {starting ? <Loader2 size={16} className="spin" /> : <Download size={16} />}
               下载选中的 {selected.size} 首
             </button>
+            <span className="text-[11px] text-faint">
+              {autoLyrics ? '会依次查询歌词源' : '已关闭歌词查询，可稍后手动上传'}
+            </span>
             <button
               onClick={reset}
               className="flex items-center gap-1.5 px-4 py-3 rounded-xl bg-panel border border-line text-sm text-muted hover:text-ink transition-colors"

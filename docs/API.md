@@ -45,6 +45,7 @@ X-Api-Token: <token>
   "cover_url": "…", "cover": "/api/songs/149/cover",
   "file_path": "musicplayer/单相思 - カタオモイ [BV1Z1421U7rD].m4a",
   "lyrics": "纯文本歌词", "lrc": "[00:00.00]…", "lyrics_source": "lrclib",
+  "lyrics_enabled": true,
   "status": "ready",                   // pending | downloading | ready | error
   "error": null
 }
@@ -96,7 +97,7 @@ GET /api/jobs/{id}       → {"job": Job, "songs": [Song…]}   // 下载进度�
 
 ```
 POST /api/jobs/{id}/start
-{ "bvids": ["BV…", …] }  // 只下载勾选的；已下载且分P未变的自动跳过
+{ "bvids": ["BV…", …], "fetch_lyrics": true }  // 可关闭自动歌词匹配
 → {"started": true, "queued": 500, "concurrency": 3, "message": "已排队 500 首"}
 ```
 
@@ -119,6 +120,8 @@ PATCH /api/songs/{id}               // 修改元数据，音频文件标签同�
   { "title": "…", "artist": "…", "album": "…",
     "cid": 123, "part_index": 2, "part_title": "…", "duration": 296.0 }
 DELETE /api/songs/{id}              → {"deleted": true}   // 删除音频/.lrc/封面/记录
+PUT    /api/songs/{id}/lyrics       // multipart/form-data，file=.lrc 或 .txt，最大 1 MB
+DELETE /api/songs/{id}/lyrics       // 删除数据库、.lrc 侧车和 M4A 内嵌歌词
 ```
 
 ### 媒体
