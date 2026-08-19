@@ -231,16 +231,12 @@ def _retag_file(song: dict, fields: dict) -> None:
     if not path.exists():
         return
     try:
-        from mutagen.mp4 import MP4
-        audio = MP4(str(path))
-        tags = audio.tags or {}
-        if fields.get("title"):
-            tags["\xa9nam"] = fields["title"]
-        if fields.get("artist"):
-            tags["\xa9ART"] = fields["artist"]
-        if fields.get("album"):
-            tags["\xa9alb"] = fields["album"]
-        audio.save()
+        downloader.update_audio_metadata(
+            path,
+            title=fields.get("title") if "title" in fields else None,
+            artist=fields.get("artist") if "artist" in fields else None,
+            album=fields.get("album") if "album" in fields else None,
+        )
     except Exception:  # noqa: BLE001
         pass  # 标签写入失败不影响数据库更新
 

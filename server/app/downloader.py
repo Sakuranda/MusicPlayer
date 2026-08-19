@@ -264,7 +264,9 @@ def tag_and_store(
     """不重编码音轨，写入元数据并移动到曲库目录。"""
     try:
         audio = MP4(str(src))
-        tags = audio.tags or {}
+        if audio.tags is None:
+            audio.add_tags()
+        tags = audio.tags
         tags["\xa9nam"] = title
         tags["\xa9ART"] = artist
         if album:
@@ -328,7 +330,9 @@ def update_embedded_lyrics(rel_path: str, text: str | None) -> None:
         return
     try:
         audio = MP4(str(path))
-        tags = audio.tags or {}
+        if audio.tags is None:
+            audio.add_tags()
+        tags = audio.tags
         if text:
             tags["\xa9lyr"] = text
         else:
@@ -336,6 +340,26 @@ def update_embedded_lyrics(rel_path: str, text: str | None) -> None:
         audio.save()
     except (OSError, mutagen.MutagenError):
         pass
+
+
+def update_audio_metadata(path: Path, title: str | None = None,
+                          artist: str | None = None,
+                          album: str | None = None) -> None:
+    """更新 M4A 标签；空专辑会真正移除旧标签。"""
+    audio = MP4(str(path))
+    if audio.tags is None:
+        audio.add_tags()
+    tags = audio.tags
+    if title is not None:
+        tags["\xa9nam"] = title
+    if artist is not None:
+        tags["\xa9ART"] = artist
+    if album is not None:
+        if album:
+            tags["\xa9alb"] = album
+        else:
+            tags.pop("\xa9alb", None)
+    audio.save()
 
 
 def save_cover(cover_bytes: bytes, bvid: str) -> str | None:
