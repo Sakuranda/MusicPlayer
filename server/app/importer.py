@@ -7,13 +7,24 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from . import bilibili, downloader, lyrics, parser
-from .config import COOKIE_DIR, DOWNLOAD_THREADS
+from .config import COOKIE_DIR, DOWNLOAD_THREADS, METADATA_THREADS
 from .db import (create_job, get_conn, get_job, insert_song, list_songs,
                  update_job, update_song)
 
 
 class ImportError(Exception):
     pass
+
+
+# 所有收藏夹共享同一个下载执行器。旧实现会为每个任务新建线程池，两个收藏夹
+# 同时启动时会把并发数翻倍；同一任务重复点击还可能重复下载同一首歌。
+_download_executor = ThreadPoolExecutor(
+    max_workers=DOWNLOAD_THREADS,
+    thread_name_prefix="music-download",
+)
+_active_lock = threading.Lock()
+_active_jobs: set[str] = set()
+_active_song_ids: set[int] = set()
 
 
 def _cookie_file(media_id: str, cookie: str | None) -> Path | None:
@@ -75,7 +86,7 @@ def parse_and_store(url: str, cookie: str | None = None, album: str | None = Non
             pass  # 详情拉不到不阻塞导入，下载时再报错
         return item
 
-    with ThreadPoolExecutor(max_workers=8) as ex:
+    with ThreadPoolExecutor(max_workers=METADATA_THREADS) as ex:
         items = list(ex.map(enrich, items))
 
     for item in items:
@@ -154,89 +165,165 @@ def _download_one(conn, song: dict, cookie_file: Path | None):
 
 
 def start_download(job_id: str, bvids: list[str] | None = None):
-    """后台线程：逐首下载。可指定 bvids 只下载勾选的歌曲。"""
+    """把歌曲加入进程级共享队列；可指定 bvids 只下载勾选的歌曲。
+
+    返回本次是否真正启动及排队数量。同一任务正在执行时重复调用是幂等的，
+    不会再提交一批重复 future。
+    """
     conn = get_conn()
     job = get_job(conn, job_id)
     if not job:
         raise ImportError("任务不存在")
 
-    songs = list_songs(conn, job_id=job_id)
-    if bvids:
+    all_songs = list_songs(conn, job_id=job_id)
+    if bvids is not None:
+        if not bvids:
+            raise ImportError("请至少选择一首歌曲")
         bv_set = set(bvids)
-        songs = [s for s in songs if s["bvid"] in bv_set]
-        # 去重：已下载且分P未变化的直接跳过，不重复下载
-        skipped = 0
-        to_download = []
-        for s in songs:
-            if s["status"] == "ready" and (s.get("downloaded_cid") is None or s.get("downloaded_cid") == s.get("cid")):
-                skipped += 1
-            else:
-                to_download.append(s)
-        songs = to_download
-        if skipped:
-            update_job(conn, job_id, message=f"跳过 {skipped} 首已下载的歌曲")
-        # 进度不重置：任务结束时会从数据库重算统计
+        selected = [s for s in all_songs if s["bvid"] in bv_set]
     else:
-        # 失败的重试，已就绪的跳过
-        songs = [s for s in songs if s["status"] != "ready"]
+        selected = all_songs
+
+    if not selected:
+        raise ImportError("所选歌曲不属于该任务")
+
+    skipped = [
+        s for s in selected
+        if s["status"] == "ready"
+        and (s.get("downloaded_cid") is None or s.get("downloaded_cid") == s.get("cid"))
+    ]
+    songs = [s for s in selected if s not in skipped]
+
+    with _active_lock:
+        if job_id in _active_jobs:
+            return {
+                "started": False,
+                "queued": 0,
+                "concurrency": DOWNLOAD_THREADS,
+                "message": "任务已在下载队列中",
+            }
+        conflicts = [s for s in songs if s["id"] in _active_song_ids]
+        if conflicts:
+            raise ImportError("部分歌曲已在另一个下载任务中，请等待其完成")
+        _active_jobs.add(job_id)
+        _active_song_ids.update(s["id"] for s in songs)
 
     if not songs:
-        _recount(conn, job_id)
-        return
+        update_job(
+            conn,
+            job_id,
+            status="done",
+            total=len(selected),
+            done=len(skipped),
+            failed=0,
+            message=f"全部 {len(skipped)} 首均已下载，已跳过",
+        )
+        with _active_lock:
+            _active_jobs.discard(job_id)
+        return {
+            "started": False,
+            "queued": 0,
+            "concurrency": DOWNLOAD_THREADS,
+            "message": "所选歌曲均已下载",
+        }
 
-    update_job(conn, job_id, status="downloading", message="开始下载")
+    song_ids = [s["id"] for s in songs]
+    for sid in song_ids:
+        update_song(conn, sid, status="pending", error=None)
+    update_job(
+        conn,
+        job_id,
+        status="downloading",
+        total=len(selected),
+        done=len(skipped),
+        failed=0,
+        message=f"已排队 {len(songs)} 首，全局并发 {DOWNLOAD_THREADS}",
+    )
     cookie_file = COOKIE_DIR / f"{job['media_id']}.txt"
     if not cookie_file.exists():
         cookie_file = None
 
     def worker(song):
         # 每个线程用独立的数据库连接，避免并发提交事务互相冲突
-        return _download_one(get_conn(), song, cookie_file)
+        worker_conn = get_conn()
+        try:
+            return _download_one(worker_conn, song, cookie_file)
+        finally:
+            worker_conn.close()
 
     def run():
-        ok_count = 0
-        with ThreadPoolExecutor(max_workers=DOWNLOAD_THREADS) as ex:
-            futs = [ex.submit(worker, s) for s in songs]
+        try:
+            futs = [_download_executor.submit(worker, s) for s in songs]
             for fut in as_completed(futs):
                 try:
-                    if fut.result():
-                        ok_count += 1
+                    fut.result()
                 except Exception:
                     pass
+                _recount_selected(conn, job_id, [s["id"] for s in selected], final=False)
 
-        # 第二批：自动重试本轮失败的歌（限流通常是瞬时的）
-        retry = [s for s in list_songs(conn, job_id=job_id) if s["status"] == "error"]
-        if retry:
-            time.sleep(15)
-            update_job(conn, job_id, message=f"自动重试 {len(retry)} 首失败的歌…")
-            with ThreadPoolExecutor(max_workers=DOWNLOAD_THREADS) as ex:
-                futs = [ex.submit(worker, s) for s in retry]
+            # 第二批只重试“本次选择且本轮失败”的歌曲，避免把旧任务错误混进来。
+            retry = []
+            for sid in song_ids:
+                row = conn.execute("SELECT * FROM songs WHERE id = ?", (sid,)).fetchone()
+                if row and row["status"] == "error":
+                    retry.append(dict(row))
+            if retry:
+                time.sleep(15)
+                update_job(conn, job_id, message=f"自动重试 {len(retry)} 首失败的歌…")
+                futs = [_download_executor.submit(worker, s) for s in retry]
                 for fut in as_completed(futs):
                     try:
-                        if fut.result():
-                            ok_count += 1
+                        fut.result()
                     except Exception:
                         pass
+                    _recount_selected(conn, job_id, [s["id"] for s in selected], final=False)
 
-        _recount(conn, job_id)
+            _recount_selected(conn, job_id, [s["id"] for s in selected], final=True)
+        except Exception as exc:  # noqa: BLE001
+            update_job(conn, job_id, status="error", message=f"下载调度异常：{str(exc)[:300]}")
+        finally:
+            conn.close()
+            with _active_lock:
+                _active_jobs.discard(job_id)
+                _active_song_ids.difference_update(song_ids)
 
     t = threading.Thread(target=run, daemon=True)
     t.start()
+    return {
+        "started": True,
+        "queued": len(songs),
+        "concurrency": DOWNLOAD_THREADS,
+        "message": f"已排队 {len(songs)} 首",
+    }
 
 
-def _recount(conn, job_id: str) -> None:
-    """按歌曲表重算任务统计，避免多次点击下载后计数错乱。"""
-    total = conn.execute("SELECT COUNT(*) FROM songs WHERE job_id = ?", (job_id,)).fetchone()[0]
-    done = conn.execute(
-        "SELECT COUNT(*) FROM songs WHERE job_id = ? AND status = 'ready'", (job_id,)
-    ).fetchone()[0]
-    failed = conn.execute(
-        "SELECT COUNT(*) FROM songs WHERE job_id = ? AND status = 'error'", (job_id,)
-    ).fetchone()[0]
-    if total > 0 and done + failed >= total:
-        status = "done"
-        message = f"完成：成功 {done} 首，失败 {failed} 首"
-    else:
-        status = "downloading"
-        message = f"下载中：成功 {done} 首，失败 {failed} 首"
+def _recount_selected(conn, job_id: str, song_ids: list[int], final: bool) -> None:
+    """只按本次选择重算进度，避免部分下载时任务永远无法完成。"""
+    if not song_ids:
+        return
+    marks = ",".join("?" for _ in song_ids)
+    rows = conn.execute(
+        f"SELECT status, COUNT(*) AS n FROM songs WHERE id IN ({marks}) GROUP BY status",
+        song_ids,
+    ).fetchall()
+    counts = {row["status"]: row["n"] for row in rows}
+    done = counts.get("ready", 0)
+    failed = counts.get("error", 0)
+    total = len(song_ids)
+    status = "done" if final else "downloading"
+    message = (
+        f"完成：成功 {done} 首，失败 {failed} 首"
+        if final
+        else f"下载中：成功 {done} 首，失败 {failed} 首，全局并发 {DOWNLOAD_THREADS}"
+    )
     update_job(conn, job_id, status=status, total=total, done=done, failed=failed, message=message)
+
+
+def is_job_active(job_id: str) -> bool:
+    with _active_lock:
+        return job_id in _active_jobs
+
+
+def is_song_active(song_id: int) -> bool:
+    with _active_lock:
+        return song_id in _active_song_ids

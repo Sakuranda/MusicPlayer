@@ -97,8 +97,11 @@ GET /api/jobs/{id}       → {"job": Job, "songs": [Song…]}   // 下载进度�
 ```
 POST /api/jobs/{id}/start
 { "bvids": ["BV…", …] }  // 只下载勾选的；已下载且分P未变的自动跳过
-→ {"started": true}      // 后台线程执行，轮询 GET /api/jobs/{id}
+→ {"started": true, "queued": 500, "concurrency": 3, "message": "已排队 500 首"}
 ```
+
+所有任务共享同一个下载队列；`concurrency` 默认 3 且服务端硬限制不超过 5。
+重复启动正在运行的同一任务不会重复排队。只选择部分歌曲时，任务进度只按本次选择统计。
 
 **删除任务（连带删除任务下所有歌曲与文件）**
 

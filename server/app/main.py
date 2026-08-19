@@ -14,7 +14,8 @@ from .bilibili import BiliError
 from .config import API_TOKEN, COVER_DIR, MUSIC_DIR
 from .db import (delete_song, get_conn, get_job, get_song, list_jobs,
                  list_songs, update_song)
-from .importer import ImportError, parse_and_store, start_download
+from .importer import (ImportError, is_job_active, is_song_active,
+                       parse_and_store, start_download)
 from .schemas import ImportRequest, SongUpdate, StartRequest
 
 app = FastAPI(title="MusicPlayer API", version="0.1.0")
@@ -80,10 +81,10 @@ def job_start(job_id: str, req: StartRequest | None = None):
     if not get_job(conn, job_id):
         raise HTTPException(404, "任务不存在")
     try:
-        start_download(job_id, req.bvids if req else None)
+        result = start_download(job_id, req.bvids if req else None)
     except ImportError as e:
         raise HTTPException(400, str(e)) from e
-    return {"started": True}
+    return result
 
 
 @app.delete("/api/jobs/{job_id}")
@@ -91,6 +92,8 @@ def job_delete(job_id: str):
     conn = get_conn()
     if not get_job(conn, job_id):
         raise HTTPException(404, "任务不存在")
+    if is_job_active(job_id):
+        raise HTTPException(409, "任务正在下载，完成后才能删除")
     for s in list_songs(conn, job_id=job_id):
         _remove_file(s)
         conn.execute("DELETE FROM songs WHERE id = ?", (s["id"],))
@@ -176,6 +179,8 @@ def _retag_file(song: dict, fields: dict) -> None:
 @app.delete("/api/songs/{sid}")
 def song_delete(sid: int):
     conn = get_conn()
+    if is_song_active(sid):
+        raise HTTPException(409, "歌曲正在下载，完成后才能删除")
     song = delete_song(conn, sid)
     if not song:
         raise HTTPException(404, "歌曲不存在")

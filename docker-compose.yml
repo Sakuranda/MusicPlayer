@@ -12,6 +12,8 @@ services:
     environment:
       - DATA_DIR=/data
       - DOWNLOAD_THREADS=3
+      - METADATA_THREADS=4
+      - BILI_API_INTERVAL=0.5
       - API_TOKEN=${API_TOKEN:-}
     ports:
       - "8080:8080"

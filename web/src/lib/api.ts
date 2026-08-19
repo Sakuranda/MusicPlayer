@@ -65,7 +65,7 @@ export const api = {
   listJobs: () => req<Job[]>('/api/jobs'),
   deleteJob: (id: string) => req<{ deleted: boolean }>(`/api/jobs/${id}`, { method: 'DELETE' }),
   startJob: (id: string, bvids: string[]) =>
-    req<{ started: boolean }>(`/api/jobs/${id}/start`, {
+    req<{ started: boolean; queued: number; concurrency: number; message: string }>(`/api/jobs/${id}/start`, {
       method: 'POST',
       body: JSON.stringify({ bvids }),
     }),

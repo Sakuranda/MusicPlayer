@@ -9,7 +9,7 @@ from typing import Optional
 
 import httpx
 
-from .config import BILI_HEADERS
+from .config import BILI_API_INTERVAL, BILI_HEADERS
 
 FAV_API = "https://api.bilibili.com/x/v3/fav/resource/list"
 VIEW_API = "https://api.bilibili.com/x/web-interface/view"
@@ -20,7 +20,7 @@ PLAYURL_API = "https://api.bilibili.com/x/player/playurl"
 # 简单全局限速：避免持续高频请求触发 412 反爬
 _rate_lock = threading.Lock()
 _last_call = 0.0
-_MIN_INTERVAL = 0.25
+_MIN_INTERVAL = BILI_API_INTERVAL
 
 
 def _throttle():

@@ -91,6 +91,7 @@ API Token：`d0689adf8786539510fc906531076ac7`（服务器 deploy/.env 内）。
 - 2026-08-14 多P：只下 P1 且时长误导 → parts/cid/source_url/downloaded_cid + 预览内联选择
 - 2026-08-14 重复导入重复下载 → bvid UNIQUE + ON CONFLICT 保留文件 + downloaded_cid 跳过
 - 2026-08-14 项目记忆机制：AGENTS.md + .dsh/skills/musicplayer（DSH 自动发现，文件监听热更新）
+- 2026-08-19 每个任务各建下载线程池会让多个收藏夹叠加并发、重复点击还会重复提交；改为进程级共享队列，默认 3、硬上限 5，同一任务幂等启动，部分选择按本次歌曲统计进度
 
 ## 维护规则
 

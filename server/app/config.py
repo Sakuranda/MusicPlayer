@@ -17,7 +17,24 @@ BILI_HEADERS = {
     "Referer": "https://www.bilibili.com/",
 }
 
-DOWNLOAD_THREADS = int(os.environ.get("DOWNLOAD_THREADS", "3"))
+def _bounded_int(name: str, default: int, minimum: int, maximum: int) -> int:
+    """读取整数环境变量，并把危险配置限制在可接受范围内。"""
+    try:
+        value = int(os.environ.get(name, str(default)))
+    except ValueError:
+        value = default
+    return max(minimum, min(value, maximum))
+
+
+# 下载并发是整个 API 进程共享的，不是“每个收藏夹各自拥有”。B 站在数据中心
+# IP 上对高频请求较敏感，因此默认 3，且无论环境变量如何配置都不允许超过 5。
+DOWNLOAD_THREADS = _bounded_int("DOWNLOAD_THREADS", 3, 1, 5)
+METADATA_THREADS = _bounded_int("METADATA_THREADS", 4, 1, 8)
+
+try:
+    BILI_API_INTERVAL = max(0.25, float(os.environ.get("BILI_API_INTERVAL", "0.5")))
+except ValueError:
+    BILI_API_INTERVAL = 0.5
 
 # 公网部署时建议设置 API 访问令牌（前端设置页里填同一个值）
 API_TOKEN = os.environ.get("API_TOKEN", "")
