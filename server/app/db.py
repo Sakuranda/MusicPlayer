@@ -79,6 +79,22 @@ def get_conn() -> sqlite3.Connection:
     return conn
 
 
+def recover_interrupted_downloads(conn: sqlite3.Connection) -> tuple[int, int]:
+    """服务重启后把无法继续的内存任务标成错误，避免永久显示“下载中”。"""
+    song_cur = conn.execute(
+        "UPDATE songs SET status = 'error', "
+        "error = '服务重启中断了下载，请重新导入或再次开始任务' "
+        "WHERE status = 'downloading'"
+    )
+    job_cur = conn.execute(
+        "UPDATE jobs SET status = 'error', "
+        "message = '服务重启中断了下载，请重新开始' "
+        "WHERE status = 'downloading'"
+    )
+    conn.commit()
+    return song_cur.rowcount, job_cur.rowcount
+
+
 def now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -141,7 +157,10 @@ def insert_song(conn: sqlite3.Connection, data: dict) -> int:
         "album=excluded.album, duration=excluded.duration, cid=excluded.cid, "
         "part_index=excluded.part_index, part_title=excluded.part_title, parts=excluded.parts, "
         "source_url=excluded.source_url, raw_title=excluded.raw_title, "
-        "uploader=excluded.uploader, tags=excluded.tags, cover_url=excluded.cover_url",
+        "uploader=excluded.uploader, tags=excluded.tags, "
+        "cover_url=CASE "
+        "WHEN songs.cover_url IS NOT NULL AND songs.cover_url NOT LIKE 'http%' "
+        "THEN songs.cover_url ELSE excluded.cover_url END",
         {**data, "created_at": now()},
     )
     conn.commit()

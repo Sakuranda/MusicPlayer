@@ -3,6 +3,7 @@ import csv
 import io
 import logging
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
@@ -13,13 +14,27 @@ from fastapi.staticfiles import StaticFiles
 from .bilibili import BiliError
 from .config import API_TOKEN, COVER_DIR, MUSIC_DIR
 from .db import (delete_song, get_conn, get_job, get_song, list_jobs,
-                 list_songs, update_song)
+                 list_songs, recover_interrupted_downloads, update_song)
 from . import downloader, lyrics
 from .importer import (ImportError, is_job_active, is_song_active,
                        parse_and_store, start_download)
 from .schemas import ImportRequest, SongUpdate, StartRequest
 
-app = FastAPI(title="MusicPlayer API", version="0.1.0")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    conn = get_conn()
+    try:
+        recovered_songs, recovered_jobs = recover_interrupted_downloads(conn)
+        if recovered_songs or recovered_jobs:
+            logging.getLogger("uvicorn.error").warning(
+                "已恢复中断状态：songs=%d jobs=%d", recovered_songs, recovered_jobs
+            )
+    finally:
+        conn.close()
+    yield
+
+
+app = FastAPI(title="MusicPlayer API", version="0.2.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -100,8 +115,12 @@ def job_delete(job_id: str):
     if is_job_active(job_id):
         raise HTTPException(409, "任务正在下载，完成后才能删除")
     for s in list_songs(conn, job_id=job_id):
-        _remove_file(s)
-        conn.execute("DELETE FROM songs WHERE id = ?", (s["id"],))
+        # 取消重复导入时，已有歌曲也会暂时归到新 job。绝不能因此删除已下载
+        # 文件；只移除这次新建且尚无文件的预览记录。
+        if s.get("file_path") or s["status"] == "ready":
+            conn.execute("UPDATE songs SET job_id = NULL WHERE id = ?", (s["id"],))
+        else:
+            conn.execute("DELETE FROM songs WHERE id = ?", (s["id"],))
     conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
     conn.commit()
     return {"deleted": True}
