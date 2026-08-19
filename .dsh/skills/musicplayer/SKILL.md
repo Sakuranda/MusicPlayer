@@ -32,7 +32,7 @@ bilibili-research-report.md   B站 API 实测调研（media_id 公式、412 对�
 1. **media_id 双形态**：`space.bilibili.com/{mid}/favlist?fid={x}` 的 fid 有时是 media_id 本身、有时要按 `fid + mid后两位` 换算 —— `parse_fav_url` 返回两个候选，`fetch_favorites` 依次尝试，哪个有数据用哪个。不要只信一种公式。
 2. **私密收藏夹**：B 站返回 `code=0 + data=null`（不是 -403）。必须带用户 Cookie（SESSDATA）。Cookie 存 `data/cookies/{media_id}.txt`（Netscape 格式），下载时还原为 k=v 串 + 合并 buvid3/buvid4 指纹。
 3. **下载双路线**：DASH 直连（view→cid→playurl→CDN 直链给 yt-dlp generic 下载，`Referer: https://www.bilibili.com/` 必需，否则 CDN 403）→ 失败回退 yt-dlp 网页路线。数据中心 IP 会吃 412 / "bad parameter or other API misuse"（限流）—— 所有任务共享全局下载队列（默认 3、硬上限 5）和 API 请求间隔，另有多级等待重试 + 批次结束后自动重试一轮失败项。
-4. **音质上限 192k AAC**（B 站 UGC 没有 320k）。
+4. **音质上限 192k AAC**（B 站 UGC 没有 320k）。曲库保留源 AAC/M4A，不为格式偏好二次编码；这是空间、音质和 iOS/Navidrome 兼容性的最佳平衡。封面只存最大 320px 的压缩 JPEG。
 5. **多P支持**：`songs.cid/part_index/part_title/parts` + `source_url`（B站链接）+ `downloaded_cid`（去重）。下载指定 P 用其 cid；重复导入时已下载且分P未变的自动跳过。
 6. **数据库**：SQLite，`db.get_conn()` 每次建新连接并执行 SCHEMA + MIGRATIONS（ALTER TABLE 容错）。**线程必须各用各的连接**（曾因共享连接并发提交报 "cannot commit - no transaction is active"）。加列必须同时加进 SCHEMA 和 MIGRATIONS。
 7. **歌词三级降级**：LRCLIB（带 duration 参数+模糊匹配）→ 网易云（GET 参数、无头可用）→ QQ 音乐（需 y.qq.com Referer）。翻唱曲目查不到是常态，返回空即可。歌词写 `.lrc` 侧车 + MP4 `©lyr` 标签（Navidrome/Amperfy 读取）。
@@ -73,6 +73,7 @@ c.commit()"'
 - 部署时机撞上用户操作 → 502 误报，前端加重试 + 服务端重算统计兜底
 - ssh 嵌套引号 heredoc 易碎 → 长脚本走 `docker exec -i ... python < 本地文件`
 - 每个收藏夹各建线程池会让并发随任务数倍增，同一任务重复启动还会重复提交 → 使用进程级共享执行器、活跃任务/歌曲集合，并按本次选择重算进度
+- AAC 转 MP3 会增加体积或损失音质；iOS/网页/Navidrome 原生支持 M4A → 保留源 AAC/M4A，只压缩封面并清理重下产生的旧路径文件
 
 ## 验证清单（每次改动后）
 

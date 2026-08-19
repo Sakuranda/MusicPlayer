@@ -30,6 +30,8 @@ def _bounded_int(name: str, default: int, minimum: int, maximum: int) -> int:
 # IP 上对高频请求较敏感，因此默认 3，且无论环境变量如何配置都不允许超过 5。
 DOWNLOAD_THREADS = _bounded_int("DOWNLOAD_THREADS", 3, 1, 5)
 METADATA_THREADS = _bounded_int("METADATA_THREADS", 4, 1, 8)
+COVER_MAX_SIZE = _bounded_int("COVER_MAX_SIZE", 320, 160, 640)
+COVER_QUALITY = _bounded_int("COVER_QUALITY", 70, 40, 85)
 
 try:
     BILI_API_INTERVAL = max(0.25, float(os.environ.get("BILI_API_INTERVAL", "0.5")))

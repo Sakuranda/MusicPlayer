@@ -131,15 +131,16 @@ def _download_one(conn, song: dict, cookie_file: Path | None):
             cid=song.get("cid"),
             part_index=song.get("part_index") or 1,
         )
+        cover_bytes = downloader.optimize_cover(result["cover"])
         rel = downloader.tag_and_store(
             result["file"], song["title"], song["artist"], song["album"],
-            result["cover"], song["bvid"],
+            cover_bytes, song["bvid"],
         )
         # 歌词侧车文件（Navidrome/Amperfy 读取同名 .lrc）
         lrc_text = song.get("lrc")
         if lrc_text:
             downloader.write_lrc_sidecar(rel, lrc_text)
-        cover_name = downloader.save_cover(result["cover"], song["bvid"]) if result["cover"] else None
+        cover_name = downloader.save_cover(cover_bytes, song["bvid"]) if cover_bytes else None
         update_song(conn, sid,
                     status="ready",
                     file_path=rel,
@@ -147,6 +148,14 @@ def _download_one(conn, song: dict, cookie_file: Path | None):
                     cover_url=cover_name or song["cover_url"],
                     downloaded_cid=song.get("cid"),
                     error=None)
+        old_rel = song.get("file_path")
+        if old_rel and old_rel != rel:
+            old_path = downloader.MUSIC_DIR / old_rel
+            try:
+                old_path.unlink(missing_ok=True)
+                old_path.with_suffix(".lrc").unlink(missing_ok=True)
+            except OSError:
+                pass
         return True
     except Exception as e:  # noqa: BLE001
         msg = str(e)[:500]

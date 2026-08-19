@@ -1,8 +1,9 @@
 """音频下载（yt-dlp）与元数据写入（mutagen）。
 
-流程：yt-dlp 抽音频(m4a) → 嵌入 标题/歌手/专辑/封面/歌词 → 移入曲库目录。
+流程：yt-dlp 抽取原始 AAC/M4A（不重新编码）→ 嵌入元数据/压缩封面/歌词 → 曲库。
 数据中心 IP 易触发 B 站 412，策略：注入真实 buvid 指纹 Cookie + 自动重试。
 """
+import io
 import re
 import shutil
 import time
@@ -11,9 +12,11 @@ from pathlib import Path
 import httpx
 import mutagen
 from mutagen.mp4 import MP4, MP4Cover
+from PIL import Image, ImageOps
 
 from . import bilibili
-from .config import COVER_DIR, MUSIC_DIR, BILI_HEADERS
+from .config import (BILI_HEADERS, COVER_DIR, COVER_MAX_SIZE, COVER_QUALITY,
+                     MUSIC_DIR)
 
 
 def _safe(name: str, max_len: int = 80) -> str:
@@ -258,7 +261,7 @@ def tag_and_store(
     bvid: str,
     lyrics_text: str | None = None,
 ) -> str:
-    """写入元数据并移动到曲库目录，返回相对 MUSIC_DIR 的路径。"""
+    """不重编码音轨，写入元数据并移动到曲库目录。"""
     try:
         audio = MP4(str(src))
         tags = audio.tags or {}
@@ -267,10 +270,9 @@ def tag_and_store(
         if album:
             tags["\xa9alb"] = album
         if cover_bytes:
-            fmt = MP4Cover.FORMAT_PNG if cover_bytes[:8] == b"\x89PNG\r\n\x1a\n" else MP4Cover.FORMAT_JPEG
-            tags["covr"] = [MP4Cover(cover_bytes, imageformat=fmt)]
+            tags["covr"] = [MP4Cover(cover_bytes, imageformat=MP4Cover.FORMAT_JPEG)]
         if lyrics_text:
-            tags["\xa9lyr"] = lyrics_text  # 内嵌歌词，客户端离线也能显示
+            tags["\xa9lyr"] = lyrics_text
         audio.save()
     except mutagen.MutagenError:
         pass  # 元数据失败不阻塞入库
@@ -282,6 +284,21 @@ def tag_and_store(
     # shutil.move 支持跨文件系统（/tmp 与 /data 可能不在同一挂载点）
     shutil.move(str(src), str(final))
     return str(final.relative_to(MUSIC_DIR))
+
+
+def optimize_cover(cover_bytes: bytes | None) -> bytes | None:
+    """封面统一缩成小尺寸 JPEG，避免保存 B 站原始大图。"""
+    if not cover_bytes:
+        return None
+    try:
+        with Image.open(io.BytesIO(cover_bytes)) as original:
+            image = ImageOps.exif_transpose(original).convert("RGB")
+            image.thumbnail((COVER_MAX_SIZE, COVER_MAX_SIZE), Image.Resampling.LANCZOS)
+            buf = io.BytesIO()
+            image.save(buf, format="JPEG", quality=COVER_QUALITY, optimize=True, progressive=True)
+            return buf.getvalue()
+    except (OSError, ValueError):
+        return None
 
 
 def write_lrc_sidecar(rel_path: str, lrc: str) -> None:
