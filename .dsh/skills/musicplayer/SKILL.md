@@ -79,6 +79,8 @@ c.commit()"'
 - 下载队列改动至少回归三件事：全局活跃数不超上限、同任务重复启动幂等、部分选择能结束且未选歌曲保持 pending；前端改动需同时看桌面和 390px 手机视口
 - Mutagen 的空 `MP4Tags` 是 falsy，不能写 `audio.tags or {}`（会得到与音频无关的普通 dict）；仅当 `tags is None` 时调用 `audio.add_tags()`
 - 500 首导入预览不要只靠缩小字体：默认紧凑行、多P改 select，保留舒展模式供精细核对；封面 lazy-load，行使用 `content-visibility` 降低离屏布局开销
+- SQLite 多线程写入使用“线程独立连接 + WAL + busy timeout”，schema/migration 每进程只初始化一次；客户端只重试幂等读取，POST/PATCH/DELETE 遇到网关错误不可自动重放；B 站 httpx Client 必须用上下文管理器关闭，并把 HTTP/非 JSON 响应转成可读错误
+- 收藏夹视频可能没有封面 URL；React 中不可渲染 `img src=""`，无 URL 时直接显示占位图，图片加载失败也应保留占位层
 
 ## 验证清单（每次改动后）
 

@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from .config import DATA_DIR, MUSIC_DIR, COVER_DIR, DB_PATH
 
 _lock = threading.Lock()
+_initialized = False
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -64,18 +65,33 @@ MIGRATIONS = [
 
 
 def get_conn() -> sqlite3.Connection:
+    global _initialized
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     MUSIC_DIR.mkdir(parents=True, exist_ok=True)
     COVER_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
     conn.row_factory = sqlite3.Row
-    with _lock:
-        conn.executescript(SCHEMA)
-        for stmt in MIGRATIONS:
-            try:
-                conn.execute(stmt)
-            except sqlite3.OperationalError:
-                pass  # 列已存在
+    # 独立连接共享 WAL，写入冲突时最多等待 30 秒，而不是立即抛 database is locked。
+    conn.execute("PRAGMA busy_timeout = 30000")
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA synchronous = NORMAL")
+    try:
+        with _lock:
+            if not _initialized:
+                conn.execute("PRAGMA journal_mode = WAL")
+                conn.executescript(SCHEMA)
+                for stmt in MIGRATIONS:
+                    try:
+                        conn.execute(stmt)
+                    except sqlite3.OperationalError as exc:
+                        if "duplicate column name" not in str(exc).lower():
+                            raise
+                        # 幂等迁移：仅忽略确定的“列已存在”，锁库/磁盘等错误必须暴露。
+                conn.commit()
+                _initialized = True
+    except Exception:
+        conn.close()
+        raise
     return conn
 
 

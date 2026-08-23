@@ -89,6 +89,19 @@ def _client(cookie: Optional[str] = None) -> httpx.Client:
     return httpx.Client(headers=headers, timeout=30, follow_redirects=True)
 
 
+def _response_json(response: httpx.Response, context: str) -> dict:
+    """将网络层错误统一转换成可读的 BiliError。"""
+    if response.status_code != 200:
+        raise BiliError(f"{context}失败：B 站返回 HTTP {response.status_code}")
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise BiliError(f"{context}失败：B 站返回了无法解析的响应") from exc
+    if not isinstance(data, dict):
+        raise BiliError(f"{context}失败：B 站返回的数据格式异常")
+    return data
+
+
 def fetch_favorites(media_ids, cookie: Optional[str] = None, page_size: int = 20):
     """依次尝试候选 media_id，返回 (收藏夹标题, [视频信息...], 成功的 media_id)。
 
@@ -96,50 +109,50 @@ def fetch_favorites(media_ids, cookie: Optional[str] = None, page_size: int = 20
     """
     if isinstance(media_ids, str):
         media_ids = [media_ids]
-    client = _client(cookie)
     saw_empty, saw_denied = False, False
 
-    for media_id in media_ids:
-        pn, items, info = 1, [], None
-        failed = False
-        while True:
-            _throttle()
-            r = client.get(
-                FAV_API,
-                params={"media_id": media_id, "pn": pn, "ps": page_size, "platform": "web"},
-            )
-            data = r.json()
-            if data.get("code") != 0 or not data.get("data"):
-                if pn == 1:
-                    failed = True
-                    code = data.get("code")
-                    if code == 0:
-                        saw_empty = True
-                    elif code in (-403, -101):
-                        saw_denied = True
-                break  # 该候选无效或翻到末页
-            info = data["data"]["info"]
-            medias = data["data"].get("medias") or []
-            for m in medias:
-                if m.get("type") != 2:  # 只要视频（跳过音频/合集等）
-                    continue
-                items.append(
-                    {
-                        "bvid": m["bvid"],
-                        "raw_title": m["title"],
-                        "cover_url": m.get("cover", ""),
-                        "duration": m.get("duration", 0),
-                        "uploader": (m.get("upper") or {}).get("name", ""),
-                        "uploader_mid": (m.get("upper") or {}).get("mid", 0),
-                    }
+    with _client(cookie) as client:
+        for media_id in media_ids:
+            pn, items, info = 1, [], None
+            failed = False
+            while True:
+                _throttle()
+                r = client.get(
+                    FAV_API,
+                    params={"media_id": media_id, "pn": pn, "ps": page_size, "platform": "web"},
                 )
-            if not data["data"].get("has_more"):
-                break
-            pn += 1
-            time.sleep(0.3)
+                data = _response_json(r, "获取收藏夹")
+                if data.get("code") != 0 or not data.get("data"):
+                    if pn == 1:
+                        failed = True
+                        code = data.get("code")
+                        if code == 0:
+                            saw_empty = True
+                        elif code in (-403, -101):
+                            saw_denied = True
+                    break  # 该候选无效或翻到末页
+                info = data["data"]["info"]
+                medias = data["data"].get("medias") or []
+                for m in medias:
+                    if m.get("type") != 2:  # 只要视频（跳过音频/合集等）
+                        continue
+                    items.append(
+                        {
+                            "bvid": m["bvid"],
+                            "raw_title": m["title"],
+                            "cover_url": m.get("cover", ""),
+                            "duration": m.get("duration", 0),
+                            "uploader": (m.get("upper") or {}).get("name", ""),
+                            "uploader_mid": (m.get("upper") or {}).get("mid", 0),
+                        }
+                    )
+                if not data["data"].get("has_more"):
+                    break
+                pn += 1
+                time.sleep(0.3)
 
-        if not failed and info is not None:
-            return info.get("title", "B站收藏夹"), items, media_id
+            if not failed and info is not None:
+                return info.get("title", "B站收藏夹"), items, media_id
 
     if saw_empty and not saw_denied:
         raise BiliError(
@@ -160,7 +173,7 @@ def fetch_buvid() -> dict[str, str]:
         _throttle()
         with _client() as client:
             r = client.get(SPI_API)
-            d = (r.json().get("data") or {}) if r.status_code == 200 else {}
+            d = _response_json(r, "获取设备指纹").get("data") or {}
         out = {}
         if d.get("b_3"):
             out["buvid3"] = d["b_3"]
@@ -177,7 +190,7 @@ def fetch_tags(bvid: str, cookie: Optional[str] = None) -> list[str]:
         _throttle()
         with _client(cookie) as client:
             r = client.get(TAGS_API, params={"bvid": bvid})
-            data = r.json()
+            data = _response_json(r, f"获取视频 {bvid} 标签")
             if data.get("code") == 0:
                 return [t.get("tag_name", "") for t in data.get("data") or []]
     except Exception:
@@ -190,7 +203,7 @@ def fetch_detail(bvid: str, cookie: Optional[str] = None) -> dict:
     _throttle()
     with _client(cookie) as client:
         r = client.get(VIEW_API, params={"bvid": bvid})
-        data = r.json()
+        data = _response_json(r, f"获取视频 {bvid} 详情")
         if data.get("code") != 0:
             raise BiliError(f"获取视频 {bvid} 详情失败: {data.get('message')}")
         return data["data"]
@@ -204,7 +217,7 @@ def fetch_playurl(bvid: str, cid: int, cookie: Optional[str] = None) -> dict:
             PLAYURL_API,
             params={"bvid": bvid, "cid": cid, "fnval": 16, "fourk": 1, "platform": "pc"},
         )
-        data = r.json()
+        data = _response_json(r, f"获取 {bvid} 播放地址")
         if data.get("code") != 0:
             raise BiliError(f"获取 {bvid} 播放地址失败: {data.get('message')} (code={data.get('code')})")
         return data["data"]

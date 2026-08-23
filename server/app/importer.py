@@ -1,5 +1,6 @@
 """导入流水线：收藏夹解析入库 + 后台下载编排。"""
 import json
+import logging
 import threading
 import time
 import uuid
@@ -10,6 +11,8 @@ from . import bilibili, downloader, lyrics, parser
 from .config import COOKIE_DIR, DOWNLOAD_THREADS, METADATA_THREADS
 from .db import (create_job, get_conn, get_job, insert_song, list_songs,
                  update_job, update_song)
+
+logger = logging.getLogger("uvicorn.error")
 
 
 class ImportError(Exception):
@@ -169,6 +172,7 @@ def _download_one(conn, song: dict, cookie_file: Path | None):
         # B 站原始报错补充说明，方便排查
         if "bad parameter" in msg:
             msg = "B 站接口限流或参数被拒（瞬时可恢复）：" + msg
+        logger.error("歌曲下载失败 sid=%s bvid=%s: %s", sid, song["bvid"], msg, exc_info=True)
         update_song(conn, sid, status="error", error=msg)
         return False
     finally:
@@ -277,8 +281,8 @@ def start_download(job_id: str, bvids: list[str] | None = None,
             for fut in as_completed(futs):
                 try:
                     fut.result()
-                except Exception:
-                    pass
+                except Exception as exc:  # noqa: BLE001
+                    logger.error("下载 worker 异常 job=%s: %s", job_id, exc, exc_info=True)
                 _recount_selected(conn, job_id, [s["id"] for s in selected], final=False)
 
             # 第二批只重试“本次选择且本轮失败”的歌曲，避免把旧任务错误混进来。
@@ -294,8 +298,8 @@ def start_download(job_id: str, bvids: list[str] | None = None,
                 for fut in as_completed(futs):
                     try:
                         fut.result()
-                    except Exception:
-                        pass
+                    except Exception as exc:  # noqa: BLE001
+                        logger.error("重试 worker 异常 job=%s: %s", job_id, exc, exc_info=True)
                     _recount_selected(conn, job_id, [s["id"] for s in selected], final=False)
 
             _recount_selected(conn, job_id, [s["id"] for s in selected], final=True)

@@ -5,6 +5,7 @@ import {
   Check,
   ChevronDown,
   Download,
+  ImageOff,
   Link2,
   ListCollapse,
   Loader2,
@@ -370,14 +371,17 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
                     }}
                     className={`accent-[#d97757] w-4 h-4 shrink-0 ${compact ? 'mt-2.5' : 'mt-4'}`}
                   />
-                  <div className={`${compact ? 'w-9 h-9 rounded-md' : 'w-12 h-12 rounded-lg mt-0.5'} overflow-hidden bg-panel2 shrink-0`}>
-                    <img
-                      src={song.cover_url ? `${song.cover_url}@160w_160h_1c.webp` : ''}
-                      alt=""
-                      loading="lazy"
-                      className="w-full h-full object-cover"
-                      onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')}
-                    />
+                  <div className={`${compact ? 'w-9 h-9 rounded-md' : 'w-12 h-12 rounded-lg mt-0.5'} relative grid place-items-center overflow-hidden bg-panel2 text-faint shrink-0`}>
+                    <ImageOff size={compact ? 13 : 16} aria-hidden="true" />
+                    {song.cover_url && (
+                      <img
+                        src={`${song.cover_url}@160w_160h_1c.webp`}
+                        alt=""
+                        loading="lazy"
+                        className="absolute inset-0 w-full h-full object-cover"
+                        onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')}
+                      />
+                    )}
                   </div>
                   <div className={`flex-1 min-w-0 grid grid-cols-2 ${compact ? 'gap-1.5' : 'gap-2'}`}>
                     <input

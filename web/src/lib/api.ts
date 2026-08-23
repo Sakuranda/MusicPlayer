@@ -33,8 +33,11 @@ async function req<T>(path: string, opts: RequestInit = {}, retried = false): Pr
     throw new Error('无法连接服务器，请检查设置中的服务器地址')
   }
   if (!res.ok) {
-    // 服务器重启/部署瞬间的网关错误，自动重试一次
-    if (!retried && (res.status === 502 || res.status === 503 || res.status === 504)) {
+    // 只自动重试只读请求。解析收藏夹等 POST 若响应在网关处丢失，盲目重试
+    // 可能在服务器上重复创建任务。
+    const method = (opts.method || 'GET').toUpperCase()
+    const retryable = method === 'GET' || method === 'HEAD'
+    if (!retried && retryable && (res.status === 502 || res.status === 503 || res.status === 504)) {
       await new Promise((r) => setTimeout(r, 1500))
       return req<T>(path, opts, true)
     }
