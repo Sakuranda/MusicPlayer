@@ -6,8 +6,10 @@ import {
   ChevronDown,
   Download,
   Link2,
+  ListCollapse,
   Loader2,
   Play,
+  Rows3,
   Trash2,
 } from 'lucide-react'
 import { api } from '../lib/api'
@@ -20,8 +22,10 @@ interface Props {
 }
 
 type Step = 'input' | 'preview' | 'progress'
+type Density = 'compact' | 'comfortable'
 
 const LS_COOKIE = 'mp_bili_cookie'
+const LS_DENSITY = 'mp_import_density'
 
 export default function ImportView({ onImported, onViewLibrary }: Props) {
   const [step, setStep] = useState<Step>('input')
@@ -30,6 +34,9 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
   const [cookie, setCookie] = useState(() => localStorage.getItem(LS_COOKIE) || '')
   const [album, setAlbum] = useState('')
   const [autoLyrics, setAutoLyrics] = useState(true)
+  const [density, setDensityState] = useState<Density>(() =>
+    localStorage.getItem(LS_DENSITY) === 'comfortable' ? 'comfortable' : 'compact',
+  )
   const [showCookie, setShowCookie] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -50,6 +57,12 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
 
   const songs = detail?.songs ?? []
   const allSelected = songs.length > 0 && selected.size === songs.length
+  const compact = density === 'compact'
+
+  const setDensity = (next: Density) => {
+    setDensityState(next)
+    localStorage.setItem(LS_DENSITY, next)
+  }
 
   const submit = async () => {
     setError('')
@@ -287,7 +300,7 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
             </button>
           </div>
 
-          <div className="flex items-center gap-3 mb-3 px-1">
+          <div className="flex flex-wrap items-center gap-3 mb-3 px-1">
             <label className="flex items-center gap-2 text-sm text-muted cursor-pointer">
               <input
                 type="checkbox"
@@ -298,7 +311,29 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
               全选
             </label>
             <span className="text-xs text-faint">已选 {selected.size}/{songs.length}</span>
-            <label className="ml-auto flex items-center gap-2 text-xs text-muted cursor-pointer">
+            <div className="ml-auto inline-flex items-center rounded-lg border border-line bg-bg2 p-0.5" aria-label="预览密度">
+              <button
+                onClick={() => setDensity('compact')}
+                aria-pressed={compact}
+                title="紧凑：一屏显示更多歌曲"
+                className={`inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] transition-colors ${
+                  compact ? 'bg-panel2 text-ink' : 'text-faint hover:text-muted'
+                }`}
+              >
+                <Rows3 size={13} /> 紧凑
+              </button>
+              <button
+                onClick={() => setDensity('comfortable')}
+                aria-pressed={!compact}
+                title="舒展：显示完整标签和多 P 选项"
+                className={`inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] transition-colors ${
+                  !compact ? 'bg-panel2 text-ink' : 'text-faint hover:text-muted'
+                }`}
+              >
+                <ListCollapse size={13} /> 舒展
+              </button>
+            </div>
+            <label className="flex items-center gap-2 text-xs text-muted cursor-pointer">
               <input
                 type="checkbox"
                 checked={autoLyrics}
@@ -309,14 +344,16 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
             </label>
           </div>
 
-          <div className="space-y-2 max-h-[54vh] overflow-y-auto pr-1">
+          <div className={`${compact ? 'space-y-1' : 'space-y-2'} max-h-[62vh] overflow-y-auto pr-1`}>
             {songs.map((song) => {
               const checked = selected.has(song.id)
               const e = edits[song.id]
               return (
                 <div
                   key={song.id}
-                  className={`flex items-start gap-3 bg-panel border rounded-xl px-4 py-3 transition-colors ${
+                  className={`song-preview-row flex items-start bg-panel border transition-colors ${
+                    compact ? 'gap-2 rounded-lg px-3 py-2' : 'gap-3 rounded-xl px-4 py-3'
+                  } ${
                     checked ? 'border-accent/40' : 'border-line opacity-60'
                   }`}
                 >
@@ -331,36 +368,65 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
                         return n
                       })
                     }}
-                    className="accent-[#d97757] w-4 h-4 mt-4 shrink-0"
+                    className={`accent-[#d97757] w-4 h-4 shrink-0 ${compact ? 'mt-2.5' : 'mt-4'}`}
                   />
-                  <div className="w-12 h-12 rounded-lg overflow-hidden bg-panel2 shrink-0 mt-0.5">
+                  <div className={`${compact ? 'w-9 h-9 rounded-md' : 'w-12 h-12 rounded-lg mt-0.5'} overflow-hidden bg-panel2 shrink-0`}>
                     <img
                       src={song.cover_url ? `${song.cover_url}@160w_160h_1c.webp` : ''}
                       alt=""
+                      loading="lazy"
                       className="w-full h-full object-cover"
                       onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')}
                     />
                   </div>
-                  <div className="flex-1 min-w-0 grid grid-cols-2 gap-2">
+                  <div className={`flex-1 min-w-0 grid grid-cols-2 ${compact ? 'gap-1.5' : 'gap-2'}`}>
                     <input
                       value={e?.title ?? song.title}
                       onChange={(ev) => updateEdit(song.id, 'title', ev.target.value)}
-                      className="bg-bg2 border border-line rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:border-accent/60"
+                      className={`bg-bg2 border border-line rounded-lg focus:outline-none focus:border-accent/60 ${
+                        compact ? 'px-2 py-1.5 text-xs' : 'px-2.5 py-2 text-sm'
+                      }`}
                       title="歌曲名"
                     />
                     <input
                       value={e?.artist ?? song.artist}
                       onChange={(ev) => updateEdit(song.id, 'artist', ev.target.value)}
-                      className="bg-bg2 border border-line rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:border-accent/60"
+                      className={`bg-bg2 border border-line rounded-lg focus:outline-none focus:border-accent/60 ${
+                        compact ? 'px-2 py-1.5 text-xs' : 'px-2.5 py-2 text-sm'
+                      }`}
                       title="歌手"
                     />
-                    <div className="col-span-2 text-[11px] text-faint truncate pl-1">
-                      原标题：{song.raw_title}
-                      {song.uploader ? ` · UP主：${song.uploader}` : ''}
-                      {song.tags?.length ? ` · 标签：${song.tags.join(' / ')}` : ''}
-                    </div>
-                    {/* 时长与分P选择 */}
-                    {(song.parts?.length ?? 0) > 1 ? (
+                    {compact ? (
+                      <div className="col-span-2 flex items-center gap-2 min-w-0 pl-1 text-[10px] text-faint">
+                        <span className="truncate flex-1">
+                          {song.raw_title}{song.uploader ? ` · ${song.uploader}` : ''}
+                        </span>
+                        {(song.parts?.length ?? 0) > 1 ? (
+                          <select
+                            value={e?.cid ?? song.cid ?? ''}
+                            onChange={(event) => updateEdit(song.id, 'cid', Number(event.target.value))}
+                            className="max-w-48 shrink-0 bg-bg2 border border-line rounded-md px-1.5 py-0.5 text-[10px] text-muted focus:outline-none focus:border-accent/60"
+                            aria-label={`${song.title} 分P选择`}
+                          >
+                            {song.parts!.map((part) => (
+                              <option key={part.cid} value={part.cid}>
+                                P{part.page} {part.part} · {fmtTime(part.duration)}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="tabular-nums shrink-0">{fmtTime(e?.duration ?? song.duration ?? 0)}</span>
+                        )}
+                      </div>
+                    ) : (
+                      <>
+                        <div className="col-span-2 text-[11px] text-faint truncate pl-1">
+                          原标题：{song.raw_title}
+                          {song.uploader ? ` · UP主：${song.uploader}` : ''}
+                          {song.tags?.length ? ` · 标签：${song.tags.join(' / ')}` : ''}
+                        </div>
+                        {/* 时长与分P选择 */}
+                        {(song.parts?.length ?? 0) > 1 ? (
                       <div className="col-span-2 pl-1 mt-0.5">
                         <div className="text-[11px] text-muted mb-1">
                           多 P 视频（{song.parts!.length} P）· 选择要下载的 P：
@@ -384,11 +450,13 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
                           ))}
                         </div>
                       </div>
-                    ) : (
-                      <div className="col-span-2 pl-1 text-[11px] text-faint tabular-nums">
-                        时长：{fmtTime(e?.duration ?? song.duration ?? 0)}
-                        {song.parts?.[0]?.part ? ` · ${song.parts[0].part}` : ''}
-                      </div>
+                        ) : (
+                          <div className="col-span-2 pl-1 text-[11px] text-faint tabular-nums">
+                            时长：{fmtTime(e?.duration ?? song.duration ?? 0)}
+                            {song.parts?.[0]?.part ? ` · ${song.parts[0].part}` : ''}
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>

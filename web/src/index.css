@@ -91,3 +91,9 @@ input[type="range"]:hover::-webkit-slider-thumb { opacity: 1; }
 .lyric-line {
   transition: color 0.3s ease, transform 0.3s ease, opacity 0.3s ease;
 }
+
+/* 大收藏夹预览时跳过屏幕外卡片的布局与绘制。 */
+.song-preview-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 64px;
+}

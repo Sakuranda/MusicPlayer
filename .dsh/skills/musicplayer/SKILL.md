@@ -78,6 +78,7 @@ c.commit()"'
 - bvid 冲突更新会把既有歌曲归到新 job；取消重复导入若按 job 级联删除会误删已下载文件 → 任务删除仅清理无文件的新预览项，ready/file_path 项解除关联，并在冲突更新时保留本地封面
 - 下载队列改动至少回归三件事：全局活跃数不超上限、同任务重复启动幂等、部分选择能结束且未选歌曲保持 pending；前端改动需同时看桌面和 390px 手机视口
 - Mutagen 的空 `MP4Tags` 是 falsy，不能写 `audio.tags or {}`（会得到与音频无关的普通 dict）；仅当 `tags is None` 时调用 `audio.add_tags()`
+- 500 首导入预览不要只靠缩小字体：默认紧凑行、多P改 select，保留舒展模式供精细核对；封面 lazy-load，行使用 `content-visibility` 降低离屏布局开销
 
 ## 验证清单（每次改动后）
 
