@@ -18,9 +18,21 @@ import { api } from '../lib/api'
 import { currentLineIndex, fmtTime, lrcToPlain, parseLrc } from '../lib/lrc'
 
 export default function PlayerBar() {
-  const { current, playing, time, duration, volume, toggle, next, prev, seek, setVolume, queue } =
-    usePlayer()
-  const [expanded, setExpanded] = useState(false)
+  const {
+    current,
+    playing,
+    time,
+    duration,
+    volume,
+    expanded,
+    toggle,
+    next,
+    prev,
+    seek,
+    setVolume,
+    setExpanded,
+    queue,
+  } = usePlayer()
   const [lyrics, setLyrics] = useState<string | null>(null)
   const [lyricsVisible, setLyricsVisible] = useState(
     () => localStorage.getItem('mp_lyrics_visible') !== 'false',
@@ -141,7 +153,7 @@ export default function PlayerBar() {
           </div>
 
           <button
-            onClick={() => setExpanded((v) => !v)}
+            onClick={() => setExpanded(!expanded)}
             className="ml-auto p-2 rounded-lg text-muted hover:text-ink transition-colors"
             title={expanded ? '收起' : '展开播放器（歌词）'}
           >

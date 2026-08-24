@@ -8,12 +8,14 @@ export interface PlayerState {
   time: number
   duration: number
   volume: number
+  expanded: boolean
   playSong: (song: Song, queue?: Song[]) => void
   toggle: () => void
   next: () => void
   prev: () => void
   seek: (time: number) => void
   setVolume: (volume: number) => void
+  setExpanded: (expanded: boolean) => void
   playQueue: (songs: Song[], index?: number) => void
 }
 

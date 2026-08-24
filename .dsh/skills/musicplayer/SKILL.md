@@ -81,6 +81,7 @@ c.commit()"'
 - 500 首导入预览不要只靠缩小字体：默认紧凑行、多P改 select，保留舒展模式供精细核对；封面 lazy-load，行使用 `content-visibility` 降低离屏布局开销
 - SQLite 多线程写入使用“线程独立连接 + WAL + busy timeout”，schema/migration 每进程只初始化一次；客户端只重试幂等读取，POST/PATCH/DELETE 遇到网关错误不可自动重放；B 站 httpx Client 必须用上下文管理器关闭，并把 HTTP/非 JSON 响应转成可读错误
 - 收藏夹视频可能没有封面 URL；React 中不可渲染 `img src=""`，无 URL 时直接显示占位图，图片加载失败也应保留占位层
+- 曲库主体点击只播放，封面点击才展开全屏封面/歌词；展开状态放在 PlayerContext 供曲库与 PlayerBar 共用。封面事件必须阻止冒泡，当前歌曲已播放时只展开、不要重复 playSong 触发暂停；卡片/列表和封面开关偏好持久化
 
 ## 验证清单（每次改动后）
 

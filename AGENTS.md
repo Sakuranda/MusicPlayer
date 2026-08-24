@@ -100,6 +100,7 @@ API Token：`d0689adf8786539510fc906531076ac7`（服务器 deploy/.env 内）。
 - 2026-08-23 多线程 SQLite 每次连接都重复跑 schema/migration，默认 rollback journal 也容易在下载进度频繁写入时锁库；改为进程内只初始化一次、WAL + 30 秒 busy timeout，迁移只忽略明确的重复列错误。前端只自动重试幂等 GET/HEAD，避免 502 时重放创建任务等写操作；B 站客户端必须及时关闭并统一处理 HTTP/非 JSON 异常
 - 2026-08-23 大收藏夹预览卡片过高且 500 首会增加布局绘制压力 → 默认紧凑密度（多P用单行 select），保留舒展模式切换并持久化；图片 lazy-load + `content-visibility` 跳过离屏绘制
 - 2026-08-23 预览条目无封面时渲染 `img src=""` 会触发 React 错误并可能重新请求整页；无 URL 时不渲染 img，加载失败则露出轻量占位图标
+- 2026-08-24 曲库卡片/列表的主体点击应只负责播放，封面点击才负责“选中歌曲 + 展开封面歌词”；展开状态需上提到 PlayerContext，封面事件必须 stopPropagation，且当前歌曲已播放时不可再次调用 playSong 导致暂停。视图/封面偏好本地持久化，大曲库行用 content-visibility 跳过离屏绘制
 
 ## 维护规则
 

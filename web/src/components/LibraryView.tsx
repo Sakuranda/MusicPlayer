@@ -6,6 +6,8 @@ import {
   ExternalLink,
   Loader2,
   FileText,
+  LayoutGrid,
+  List,
   Pencil,
   Play,
   RefreshCw,
@@ -26,6 +28,11 @@ interface Props {
   onGoImport: () => void
 }
 
+type LibraryLayout = 'grid' | 'list'
+
+const LS_LIBRARY_LAYOUT = 'mp_library_layout'
+const LS_LIBRARY_COVERS = 'mp_library_covers'
+
 function Cover({ song, className }: { song: Song; className?: string }) {
   const [failed, setFailed] = useState(false)
   const url = api.coverUrl(song)
@@ -44,6 +51,43 @@ function Cover({ song, className }: { song: Song; className?: string }) {
       onError={() => setFailed(true)}
       className={`object-cover ${className ?? ''}`}
     />
+  )
+}
+
+function SongActions({
+  song,
+  onEdit,
+  onDelete,
+}: {
+  song: Song
+  onEdit: (song: Song) => void
+  onDelete: (song: Song) => void
+}) {
+  return (
+    <div className="relative z-10 flex shrink-0 items-center gap-0.5 pointer-events-auto">
+      <button
+        onClick={(event) => {
+          event.stopPropagation()
+          onEdit(song)
+        }}
+        className="p-1.5 rounded-lg text-faint hover:text-accent hover:bg-accent-dim transition-colors"
+        title="编辑歌曲信息"
+        aria-label={`编辑 ${song.title}`}
+      >
+        <Pencil size={13} />
+      </button>
+      <button
+        onClick={(event) => {
+          event.stopPropagation()
+          onDelete(song)
+        }}
+        className="p-1.5 rounded-lg text-faint hover:text-danger hover:bg-danger/10 transition-colors"
+        title="删除歌曲"
+        aria-label={`删除 ${song.title}`}
+      >
+        <Trash2 size={13} />
+      </button>
+    </div>
   )
 }
 
@@ -284,11 +328,17 @@ function DeleteModal({
 }
 
 export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: Props) {
-  const { playSong, playQueue, current, playing } = usePlayer()
+  const { playSong, playQueue, current, playing, setExpanded } = usePlayer()
   const [query, setQuery] = useState('')
   const [editing, setEditing] = useState<Song | null>(null)
   const [deleting, setDeleting] = useState<Song | null>(null)
   const [localSongs, setLocalSongs] = useState(songs)
+  const [layout, setLayoutState] = useState<LibraryLayout>(() =>
+    localStorage.getItem(LS_LIBRARY_LAYOUT) === 'list' ? 'list' : 'grid',
+  )
+  const [showCovers, setShowCoversState] = useState(
+    () => localStorage.getItem(LS_LIBRARY_COVERS) !== 'false',
+  )
 
   // 外部刷新时同步
   useEffect(() => {
@@ -310,6 +360,25 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
     )
   }, [ready, query])
 
+  const setLayout = (next: LibraryLayout) => {
+    setLayoutState(next)
+    localStorage.setItem(LS_LIBRARY_LAYOUT, next)
+  }
+
+  const setShowCovers = (next: boolean) => {
+    setShowCoversState(next)
+    localStorage.setItem(LS_LIBRARY_COVERS, String(next))
+  }
+
+  const play = (song: Song) => playSong(song, filtered)
+
+  const openArtworkAndLyrics = (event: React.MouseEvent, song: Song) => {
+    event.stopPropagation()
+    // 当前歌曲已在播放时只展开播放器，不要因为再次调用 playSong 而暂停。
+    if (current?.id !== song.id || !playing) playSong(song, filtered)
+    setExpanded(true)
+  }
+
   return (
     <div className="max-w-6xl mx-auto px-4 pt-6 sm:px-6 md:px-8 md:pt-10">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between mb-8">
@@ -319,30 +388,74 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
             {ready.length} 首歌曲{others.length > 0 ? ` · ${others.length} 首处理中/失败` : ''}
           </p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-          <div className="relative flex-1 sm:flex-none">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="搜索歌曲、歌手…"
-              className="w-full sm:w-56 bg-panel border border-line rounded-xl pl-9 pr-3 py-2 text-sm placeholder:text-faint focus:outline-none focus:border-accent/50 transition-colors"
-            />
+        <div className="flex flex-col items-stretch gap-2 sm:items-end">
+          <div className="inline-flex self-end items-center gap-1 rounded-xl border border-line bg-panel p-1">
+            <span className="pl-2 pr-1 text-[11px] text-muted">封面</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={showCovers}
+              onClick={() => setShowCovers(!showCovers)}
+              className={`relative h-5 w-9 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${
+                showCovers ? 'bg-accent' : 'bg-panel2'
+              }`}
+              title={showCovers ? '隐藏歌曲封面' : '显示歌曲封面'}
+            >
+              <span
+                className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+                  showCovers ? 'translate-x-[18px]' : 'translate-x-0.5'
+                }`}
+              />
+            </button>
+            <span className="mx-1 h-4 w-px bg-line" aria-hidden="true" />
+            <button
+              type="button"
+              aria-pressed={layout === 'grid'}
+              onClick={() => setLayout('grid')}
+              className={`inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] transition-colors ${
+                layout === 'grid' ? 'bg-panel2 text-ink' : 'text-faint hover:text-muted'
+              }`}
+              title="卡片视图"
+            >
+              <LayoutGrid size={13} /> 卡片
+            </button>
+            <button
+              type="button"
+              aria-pressed={layout === 'list'}
+              onClick={() => setLayout('list')}
+              className={`inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] transition-colors ${
+                layout === 'list' ? 'bg-panel2 text-ink' : 'text-faint hover:text-muted'
+              }`}
+              title="列表视图"
+            >
+              <List size={13} /> 列表
+            </button>
           </div>
-          <button
-            onClick={onRefresh}
-            title="刷新"
-            className="p-2.5 rounded-xl bg-panel border border-line text-muted hover:text-ink transition-colors"
-          >
-            <RefreshCw size={15} />
-          </button>
-          <button
-            onClick={() => playQueue(filtered)}
-            disabled={!filtered.length}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-accent hover:bg-accent-soft text-white text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <Play size={15} fill="currentColor" /> 播放全部
-          </button>
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1 sm:flex-none">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="搜索歌曲、歌手…"
+                className="w-full sm:w-56 bg-panel border border-line rounded-xl pl-9 pr-3 py-2 text-sm placeholder:text-faint focus:outline-none focus:border-accent/50 transition-colors"
+              />
+            </div>
+            <button
+              onClick={onRefresh}
+              title="刷新"
+              className="p-2.5 rounded-xl bg-panel border border-line text-muted hover:text-ink transition-colors"
+            >
+              <RefreshCw size={15} />
+            </button>
+            <button
+              onClick={() => playQueue(filtered)}
+              disabled={!filtered.length}
+              className="flex shrink-0 items-center gap-2 px-4 py-2.5 rounded-xl bg-accent hover:bg-accent-soft text-white text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Play size={15} fill="currentColor" /> 播放全部
+            </button>
+          </div>
         </div>
       </div>
 
@@ -372,63 +485,124 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
       ) : (
         <>
           {filtered.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            <div
+              className={
+                layout === 'grid'
+                  ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4'
+                  : 'space-y-1.5'
+              }
+            >
               {filtered.map((song, i) => {
                 const isCurrent = current?.id === song.id
+                if (layout === 'list') {
+                  return (
+                    <div
+                      key={song.id}
+                      className={`library-song-list group relative flex min-h-16 items-center gap-3 rounded-xl border px-3 py-2 transition-colors fade-in-up ${
+                        isCurrent ? 'border-accent/50 bg-accent-dim' : 'border-line bg-panel hover:border-line/80 hover:bg-panel2/60'
+                      }`}
+                      style={{ animationDelay: `${Math.min(i * 16, 220)}ms` }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => play(song)}
+                        className="absolute inset-0 z-0 cursor-pointer rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/70"
+                        aria-label={`播放 ${song.title}，${song.artist}`}
+                      />
+                      {showCovers && (
+                        <button
+                          type="button"
+                          onClick={(event) => openArtworkAndLyrics(event, song)}
+                          className="relative z-10 h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-panel2 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
+                          title="打开封面和歌词"
+                          aria-label={`打开 ${song.title} 的封面和歌词`}
+                        >
+                          <Cover song={song} className="h-full w-full transition-transform duration-200 group-hover:scale-105" />
+                          <span className="absolute inset-0 grid place-items-center bg-black/45 opacity-0 transition-opacity hover:opacity-100 focus-visible:opacity-100">
+                            <FileText size={15} className="text-white" />
+                          </span>
+                        </button>
+                      )}
+                      <div className="pointer-events-none relative z-10 min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate text-sm font-medium" title={song.title}>{song.title}</span>
+                          {isCurrent && (
+                            <span className="shrink-0 rounded-full bg-accent px-1.5 py-0.5 text-[9px] font-medium text-white">
+                              {playing ? '播放中' : '已暂停'}
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-0.5 truncate text-[11px] text-muted" title={song.artist}>
+                          {song.artist}
+                        </div>
+                      </div>
+                      {song.album && (
+                        <div className="pointer-events-none relative z-10 hidden w-40 truncate text-xs text-faint md:block" title={song.album}>
+                          {song.album}
+                        </div>
+                      )}
+                      <div className="pointer-events-none relative z-10 w-10 shrink-0 text-right text-[11px] tabular-nums text-faint">
+                        {song.duration ? fmtTime(song.duration) : '—'}
+                      </div>
+                      <SongActions song={song} onEdit={setEditing} onDelete={setDeleting} />
+                    </div>
+                  )
+                }
                 return (
                   <div
                     key={song.id}
-                    onClick={() => playSong(song, filtered)}
-                    className="group hover-lift bg-panel border border-line rounded-2xl overflow-hidden cursor-pointer fade-in-up"
+                    className={`library-song-card group relative hover-lift bg-panel border rounded-2xl overflow-hidden fade-in-up ${
+                      isCurrent ? 'border-accent/50' : 'border-line'
+                    }`}
                     style={{ animationDelay: `${Math.min(i * 25, 300)}ms` }}
                   >
-                    <div className="relative aspect-square overflow-hidden bg-panel2">
-                      <Cover song={song} className="w-full h-full transition-transform duration-300 group-hover:scale-105" />
-                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
-                        <div className="w-12 h-12 rounded-full bg-white/95 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all translate-y-2 group-hover:translate-y-0">
-                          {isCurrent && playing ? (
-                            <Loader2 size={18} className="text-bg spin" />
-                          ) : (
-                            <Play size={18} className="text-bg ml-0.5" fill="currentColor" />
+                    <button
+                      type="button"
+                      onClick={() => play(song)}
+                      className="absolute inset-0 z-0 cursor-pointer rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/70"
+                      aria-label={`播放 ${song.title}，${song.artist}`}
+                    />
+                    {showCovers && (
+                      <button
+                        type="button"
+                        onClick={(event) => openArtworkAndLyrics(event, song)}
+                        className="relative z-10 block aspect-square w-full overflow-hidden bg-panel2 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/70"
+                        title="打开封面和歌词"
+                        aria-label={`打开 ${song.title} 的封面和歌词`}
+                      >
+                        <Cover song={song} className="h-full w-full transition-transform duration-300 group-hover:scale-105" />
+                        <span className="absolute inset-0 grid place-items-center bg-black/0 transition-colors group-hover:bg-black/30">
+                          <span className="grid h-12 w-12 translate-y-2 place-items-center rounded-full bg-white/95 text-bg opacity-0 transition-all group-hover:translate-y-0 group-hover:opacity-100 focus-visible:translate-y-0 focus-visible:opacity-100">
+                            <FileText size={18} />
+                          </span>
+                        </span>
+                        {isCurrent && (
+                          <span className="absolute right-2 top-2 rounded-full bg-accent px-2 py-0.5 text-[10px] font-medium text-white">
+                            {playing ? '播放中' : '已暂停'}
+                          </span>
+                        )}
+                      </button>
+                    )}
+                    <div className={`pointer-events-none relative z-10 flex flex-col p-3.5 ${showCovers ? '' : 'min-h-28 justify-between'}`}>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <div className="min-w-0 flex-1 truncate text-sm font-medium" title={song.title}>
+                            {song.title}
+                          </div>
+                          {!showCovers && isCurrent && (
+                            <span className="shrink-0 rounded-full bg-accent px-1.5 py-0.5 text-[9px] font-medium text-white">
+                              {playing ? '播放中' : '已暂停'}
+                            </span>
                           )}
                         </div>
-                      </div>
-                      {isCurrent && (
-                        <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-accent text-white text-[10px] font-medium">
-                          播放中
+                        <div className="mt-0.5 truncate text-xs text-muted" title={song.artist}>
+                          {song.artist}
+                          {song.album ? ` · ${song.album}` : ''}
+                          {song.duration ? ` · ${fmtTime(song.duration)}` : ''}
                         </div>
-                      )}
-                    </div>
-                    <div className="p-3.5">
-                      <div className="font-medium text-sm truncate" title={song.title}>
-                        {song.title}
                       </div>
-                      <div className="text-xs text-muted truncate mt-0.5" title={song.artist}>
-                        {song.artist}
-                        {song.album ? ` · ${song.album}` : ''}
-                        {song.duration ? ` · ${fmtTime(song.duration)}` : ''}
-                      </div>
-                      <div className="flex justify-end gap-0.5 mt-1.5">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setEditing(song)
-                          }}
-                          className="p-1.5 rounded-lg text-faint hover:text-accent hover:bg-accent-dim transition-colors"
-                          title="编辑歌曲信息"
-                        >
-                          <Pencil size={13} />
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setDeleting(song)
-                          }}
-                          className="p-1.5 rounded-lg text-faint hover:text-danger hover:bg-danger/10 transition-colors"
-                          title="删除歌曲"
-                        >
-                          <Trash2 size={13} />
-                        </button>
+                      <div className="mt-1.5 flex justify-end">
+                        <SongActions song={song} onEdit={setEditing} onDelete={setDeleting} />
                       </div>
                     </div>
                   </div>
@@ -448,9 +622,11 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
                     key={song.id}
                     className="flex items-center gap-3 bg-panel border border-line rounded-xl px-4 py-3"
                   >
-                    <div className="w-10 h-10 rounded-lg overflow-hidden bg-panel2 shrink-0">
-                      <Cover song={song} className="w-full h-full" />
-                    </div>
+                    {showCovers && (
+                      <div className="w-10 h-10 rounded-lg overflow-hidden bg-panel2 shrink-0">
+                        <Cover song={song} className="w-full h-full" />
+                      </div>
+                    )}
                     <div className="min-w-0 flex-1">
                       <div className="text-sm truncate">{song.title} — {song.artist}</div>
                       <div className="text-[11px] text-faint truncate mt-0.5">{song.raw_title}</div>

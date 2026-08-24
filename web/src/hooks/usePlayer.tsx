@@ -18,6 +18,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [time, setTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [volume, setVolumeState] = useState(0.8)
+  const [expanded, setExpanded] = useState(false)
 
   // 创建音频元素并绑定基础事件（只执行一次）
   useEffect(() => {
@@ -131,7 +132,23 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   return (
     <PlayerContext.Provider
-      value={{ current, queue, playing, time, duration, volume, playSong, toggle, next, prev, seek, setVolume, playQueue }}
+      value={{
+        current,
+        queue,
+        playing,
+        time,
+        duration,
+        volume,
+        expanded,
+        playSong,
+        toggle,
+        next,
+        prev,
+        seek,
+        setVolume,
+        setExpanded,
+        playQueue,
+      }}
     >
       {children}
     </PlayerContext.Provider>

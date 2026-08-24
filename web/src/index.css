@@ -97,3 +97,24 @@ input[type="range"]:hover::-webkit-slider-thumb { opacity: 1; }
   content-visibility: auto;
   contain-intrinsic-size: auto 64px;
 }
+
+/* 大曲库只布局和绘制视口附近的歌曲。两种视图保留各自的占位高度。 */
+.library-song-list {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 64px;
+}
+.library-song-card {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 320px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fade-in-up,
+  .spin,
+  .spin-slow {
+    animation: none;
+  }
+  .hover-lift:hover {
+    transform: none;
+  }
+}
