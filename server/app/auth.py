@@ -164,7 +164,9 @@ def lookup_location(ip: str) -> dict:
         response = httpx.get(
             f"https://ipwho.is/{ip}",
             params={"fields": "success,country,region,city"},
-            timeout=2.5,
+            # 香港机房到免费 GeoIP 端点的 TLS + 响应实测偶尔超过 2.5 秒。
+            # 仅新 IP 首次成功登录会查询，后续均走 SQLite 缓存。
+            timeout=5.0,
         )
         response.raise_for_status()
         data = response.json()

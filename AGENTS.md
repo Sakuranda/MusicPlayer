@@ -105,6 +105,7 @@ API Token：`d0689adf8786539510fc906531076ac7`（服务器 deploy/.env 内）。
 - 2026-08-24 歌单只保存 playlist_songs 关系，绝不复制媒体文件；SQLite 外键级联负责歌曲删除后的关系清理。曲库的歌单/歌手/关键词筛选应共同生成同一份 filtered 队列，确保“点歌”和“播放全部”行为一致
 - 2026-08-24 网页鉴权使用一次性图片验证码 + HttpOnly 签名 Cookie，API_TOKEN 仅保留脚本兼容；真实 IP 只在直连对端为内网/回环代理时信任 X-Forwarded-For。只审计成功会话，last_seen 每会话最多每分钟落库一次；IP 属地必须缓存且外部查询失败不能阻断登录
 - 2026-08-24 Compose 默认不会自动读取 `deploy/.env`，且 `environment` 的显式空值/默认值优先于 `env_file`；部署变量统一由可选 `env_file: deploy/.env` 注入，compose 仅显式保留容器内固定的 DATA_DIR。上线必须用 `/api/auth/status` 和未认证 401 验证配置确实进入容器，不能只看构建成功
+- 2026-08-24 香港机房访问 ipwho.is 的 TLS/响应偶尔超过 2.5 秒，过短超时会让所有新 IP 属地静默为空；新 IP 首次成功登录允许 5 秒超时，成功后按 IP 缓存到 SQLite，失败仍不得阻断登录
 
 ## 维护规则
 

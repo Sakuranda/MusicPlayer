@@ -1,6 +1,6 @@
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from app import auth
 
@@ -49,6 +49,23 @@ class AuthenticationTests(unittest.TestCase):
         self.assertFalse(auth.should_touch("session"))
         auth._last_touch["session"] = time.time() - 61
         self.assertTrue(auth.should_touch("session"))
+
+    def test_public_ip_location_is_normalized(self):
+        response = Mock()
+        response.json.return_value = {
+            "success": True,
+            "country": "China",
+            "region": "Hong Kong",
+            "city": "Hong Kong",
+        }
+        with patch.object(auth.httpx, "get", return_value=response) as request:
+            location = auth.lookup_location("8.8.8.8")
+        request.assert_called_once()
+        self.assertEqual(location, {
+            "country": "China",
+            "region": "Hong Kong",
+            "city": "Hong Kong",
+        })
 
 
 if __name__ == "__main__":

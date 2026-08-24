@@ -86,6 +86,7 @@ c.commit()"'
 - 歌单表只存歌曲关系与顺序，不复制音频；歌曲删除依赖 SQLite 外键级联清关系。歌单、歌手、关键词筛选必须汇总成同一个播放队列，避免界面显示与下一首范围不一致
 - 网页鉴权用一次性验证码 + HttpOnly 签名 Cookie，API_TOKEN 只做脚本兼容。仅代理对端为内网/回环时信任 X-Forwarded-For；只记录成功会话，last_seen 写入需节流，IP 属地查不到不能阻塞登录
 - Compose 不会默认读取 `deploy/.env`，而显式 `environment` 会覆盖 env_file；部署变量统一走可选的 `env_file: deploy/.env`，只保留固定 DATA_DIR。上线必须验证 auth/status 已启用且匿名 API 返回 401
+- 香港机房请求 ipwho.is 偶尔超过 2.5 秒；首次新 IP 查询使用 5 秒超时并将成功属地缓存到 SQLite，查询失败仍不得阻断登录
 
 ## 验证清单（每次改动后）
 
