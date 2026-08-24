@@ -9,20 +9,11 @@ services:
     restart: unless-stopped
     volumes:
       - ./data:/data
+    env_file:
+      - path: ./deploy/.env
+        required: false
     environment:
       - DATA_DIR=/data
-      - DOWNLOAD_THREADS=3
-      - METADATA_THREADS=4
-      - BILI_API_INTERVAL=0.5
-      - LYRICS_API_INTERVAL=0.35
-      - COVER_MAX_SIZE=320
-      - COVER_QUALITY=70
-      - API_TOKEN=${API_TOKEN:-}
-      - ADMIN_USERNAME=${ADMIN_USERNAME:-}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
-      - AUTH_SECRET=${AUTH_SECRET:-}
-      - SESSION_TTL_HOURS=${SESSION_TTL_HOURS:-720}
-      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-https://music.sakuranda.site}
     ports:
       - "8080:8080"
 
