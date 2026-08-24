@@ -51,3 +51,10 @@ export interface JobDetail {
   job: Job
   songs: Song[]
 }
+
+export interface Playlist {
+  id: number
+  name: string
+  song_count: number
+  created_at: string
+}

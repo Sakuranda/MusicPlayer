@@ -127,6 +127,20 @@ PUT    /api/songs/{id}/lyrics       // multipart/form-data，file=.lrc 或 .txt�
 DELETE /api/songs/{id}/lyrics       // 删除数据库、.lrc 侧车和 M4A 内嵌歌词
 ```
 
+### 歌单
+
+```
+GET    /api/playlists                         → [{id,name,song_count,created_at}]
+POST   /api/playlists  {"name":"通勤"}       → 创建歌单
+PATCH  /api/playlists/{id} {"name":"夜间"}  → 重命名
+DELETE /api/playlists/{id}                    → 只删除歌单，不删除歌曲文件
+GET    /api/playlists/{id}/songs              → 按加入顺序返回 [Song…]
+POST   /api/playlists/{id}/songs/{song_id}    → 加入歌曲（重复请求幂等）
+DELETE /api/playlists/{id}/songs/{song_id}    → 从歌单移除
+```
+
+歌单只保存歌曲引用与顺序，不复制音频、封面或歌词。删除歌曲时，其所有歌单关系由数据库级联清理。
+
 ### 媒体
 
 ```

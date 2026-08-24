@@ -1,4 +1,4 @@
-import type { Job, JobDetail, Song } from '../types'
+import type { Job, JobDetail, Playlist, Song } from '../types'
 
 const LS_BASE = 'mp_api_base'
 const LS_TOKEN = 'mp_api_token'
@@ -88,6 +88,19 @@ export const api = {
   },
   deleteLyrics: (id: number) =>
     req<Song>(`/api/songs/${id}/lyrics`, { method: 'DELETE' }),
+
+  playlists: () => req<Playlist[]>('/api/playlists'),
+  createPlaylist: (name: string) =>
+    req<Playlist>('/api/playlists', { method: 'POST', body: JSON.stringify({ name }) }),
+  renamePlaylist: (id: number, name: string) =>
+    req<Playlist>(`/api/playlists/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
+  deletePlaylist: (id: number) =>
+    req<{ deleted: boolean }>(`/api/playlists/${id}`, { method: 'DELETE' }),
+  playlistSongs: (id: number) => req<Song[]>(`/api/playlists/${id}/songs`),
+  addPlaylistSong: (playlistId: number, songId: number) =>
+    req<{ added: boolean }>(`/api/playlists/${playlistId}/songs/${songId}`, { method: 'POST' }),
+  removePlaylistSong: (playlistId: number, songId: number) =>
+    req<{ removed: boolean }>(`/api/playlists/${playlistId}/songs/${songId}`, { method: 'DELETE' }),
 
   streamUrl: (id: number) => withToken(`${getBase()}/api/stream/${id}`),
   coverUrl: (song: Song) => (song.cover ? withToken(`${getBase()}${song.cover}`) : ''),

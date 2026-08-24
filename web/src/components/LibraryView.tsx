@@ -6,8 +6,10 @@ import {
   ExternalLink,
   Loader2,
   FileText,
+  FolderPlus,
   LayoutGrid,
   List,
+  ListPlus,
   Pencil,
   Play,
   RefreshCw,
@@ -19,7 +21,7 @@ import {
 import { api } from '../lib/api'
 import { usePlayer } from '../hooks/playerContext'
 import { fmtTime } from '../lib/lrc'
-import type { Song } from '../types'
+import type { Playlist, Song } from '../types'
 
 interface Props {
   songs: Song[]
@@ -58,13 +60,26 @@ function SongActions({
   song,
   onEdit,
   onDelete,
+  onPlaylist,
 }: {
   song: Song
   onEdit: (song: Song) => void
   onDelete: (song: Song) => void
+  onPlaylist: (song: Song) => void
 }) {
   return (
     <div className="relative z-10 flex shrink-0 items-center gap-0.5 pointer-events-auto">
+      <button
+        onClick={(event) => {
+          event.stopPropagation()
+          onPlaylist(song)
+        }}
+        className="p-1.5 rounded-lg text-faint hover:text-accent hover:bg-accent-dim transition-colors"
+        title="添加到歌单"
+        aria-label={`添加 ${song.title} 到歌单`}
+      >
+        <ListPlus size={13} />
+      </button>
       <button
         onClick={(event) => {
           event.stopPropagation()
@@ -87,6 +102,186 @@ function SongActions({
       >
         <Trash2 size={13} />
       </button>
+    </div>
+  )
+}
+
+function PlaylistManager({
+  playlists,
+  onClose,
+  onChanged,
+}: {
+  playlists: Playlist[]
+  onClose: () => void
+  onChanged: () => Promise<void>
+}) {
+  const [name, setName] = useState('')
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [editingName, setEditingName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  const run = async (action: () => Promise<unknown>) => {
+    setBusy(true)
+    setError('')
+    try {
+      await action()
+      await onChanged()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const create = () => {
+    const clean = name.trim()
+    if (!clean) return
+    void run(async () => {
+      await api.createPlaylist(clean)
+      setName('')
+    })
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm fade-in-up" onClick={onClose}>
+      <div className="w-[440px] max-w-[92vw] rounded-2xl border border-line bg-panel p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h3 className="text-base font-medium">管理歌单</h3>
+            <p className="mt-0.5 text-[11px] text-faint">创建自己的播放集合，原始音频不会重复占用空间</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-muted hover:text-ink"><X size={16} /></button>
+        </div>
+        <div className="flex gap-2">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') create() }}
+            placeholder="新歌单名称"
+            maxLength={80}
+            className="min-w-0 flex-1 rounded-xl border border-line bg-bg2 px-3 py-2.5 text-sm focus:border-accent/60 focus:outline-none"
+          />
+          <button onClick={create} disabled={busy || !name.trim()} className="rounded-xl bg-accent px-4 text-sm font-medium text-white disabled:opacity-40">
+            创建
+          </button>
+        </div>
+        <div className="mt-4 max-h-72 space-y-2 overflow-y-auto">
+          {playlists.length ? playlists.map((playlist) => (
+            <div key={playlist.id} className="flex items-center gap-2 rounded-xl border border-line bg-bg2 px-3 py-2.5">
+              {editingId === playlist.id ? (
+                <input
+                  autoFocus
+                  value={editingName}
+                  onChange={(e) => setEditingName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') setEditingId(null)
+                    if (e.key === 'Enter' && editingName.trim()) void run(async () => {
+                      await api.renamePlaylist(playlist.id, editingName.trim())
+                      setEditingId(null)
+                    })
+                  }}
+                  className="min-w-0 flex-1 rounded-lg border border-line bg-panel px-2 py-1 text-sm focus:outline-none"
+                />
+              ) : (
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm">{playlist.name}</div>
+                  <div className="text-[10px] text-faint">{playlist.song_count} 首</div>
+                </div>
+              )}
+              <button
+                onClick={() => { setEditingId(playlist.id); setEditingName(playlist.name) }}
+                className="p-1.5 text-faint hover:text-accent"
+                title="重命名"
+              ><Pencil size={13} /></button>
+              <button
+                onClick={() => void run(() => api.deletePlaylist(playlist.id))}
+                disabled={busy}
+                className="p-1.5 text-faint hover:text-danger disabled:opacity-40"
+                title="删除歌单（不会删除歌曲）"
+              ><Trash2 size={13} /></button>
+            </div>
+          )) : <p className="py-8 text-center text-xs text-faint">还没有歌单</p>}
+        </div>
+        {error && <p className="mt-3 text-xs text-danger">{error}</p>}
+      </div>
+    </div>
+  )
+}
+
+function AddToPlaylistModal({
+  song,
+  playlists,
+  activePlaylistId,
+  onClose,
+  onChanged,
+}: {
+  song: Song
+  playlists: Playlist[]
+  activePlaylistId: number | null
+  onClose: () => void
+  onChanged: () => Promise<void>
+}) {
+  const [busyId, setBusyId] = useState<number | null>(null)
+  const [error, setError] = useState('')
+  const add = async (playlist: Playlist) => {
+    setBusyId(playlist.id)
+    setError('')
+    try {
+      await api.addPlaylistSong(playlist.id, song.id)
+      await onChanged()
+      onClose()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusyId(null)
+    }
+  }
+  const remove = async () => {
+    if (activePlaylistId === null) return
+    setBusyId(activePlaylistId)
+    setError('')
+    try {
+      await api.removePlaylistSong(activePlaylistId, song.id)
+      await onChanged()
+      onClose()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusyId(null)
+    }
+  }
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm fade-in-up" onClick={onClose}>
+      <div className="w-[380px] max-w-[92vw] rounded-2xl border border-line bg-panel p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-4 flex items-center justify-between">
+          <div className="min-w-0">
+            <h3 className="text-base font-medium">添加到歌单</h3>
+            <p className="mt-0.5 truncate text-[11px] text-faint">{song.title} · {song.artist}</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-muted hover:text-ink"><X size={16} /></button>
+        </div>
+        <div className="max-h-72 space-y-2 overflow-y-auto">
+          {playlists.map((playlist) => (
+            <button
+              key={playlist.id}
+              onClick={() => void add(playlist)}
+              disabled={busyId !== null}
+              className="flex w-full items-center justify-between rounded-xl border border-line bg-bg2 px-3 py-3 text-left transition-colors hover:border-accent/50 disabled:opacity-50"
+            >
+              <span className="truncate text-sm">{playlist.name}</span>
+              <span className="text-[10px] text-faint">{playlist.song_count} 首</span>
+            </button>
+          ))}
+          {!playlists.length && <p className="py-8 text-center text-xs text-faint">请先在曲库顶部创建歌单</p>}
+        </div>
+        {activePlaylistId !== null && (
+          <button onClick={() => void remove()} disabled={busyId !== null} className="mt-3 w-full rounded-xl px-3 py-2.5 text-xs text-danger hover:bg-danger/10 disabled:opacity-50">
+            从当前歌单移除
+          </button>
+        )}
+        {error && <p className="mt-3 text-xs text-danger">{error}</p>}
+      </div>
     </div>
   )
 }
@@ -332,6 +527,12 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
   const [query, setQuery] = useState('')
   const [editing, setEditing] = useState<Song | null>(null)
   const [deleting, setDeleting] = useState<Song | null>(null)
+  const [playlistTarget, setPlaylistTarget] = useState<Song | null>(null)
+  const [playlists, setPlaylists] = useState<Playlist[]>([])
+  const [selectedPlaylist, setSelectedPlaylist] = useState<number | 'all'>('all')
+  const [playlistSongIds, setPlaylistSongIds] = useState<Set<number>>(new Set())
+  const [artist, setArtist] = useState('all')
+  const [managingPlaylists, setManagingPlaylists] = useState(false)
   const [localSongs, setLocalSongs] = useState(songs)
   const [layout, setLayoutState] = useState<LibraryLayout>(() =>
     localStorage.getItem(LS_LIBRARY_LAYOUT) === 'list' ? 'list' : 'grid',
@@ -345,20 +546,64 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
     setLocalSongs(songs)
   }, [songs])
 
+  const refreshPlaylists = async () => {
+    const next = await api.playlists()
+    setPlaylists(next)
+    if (selectedPlaylist !== 'all' && !next.some((playlist) => playlist.id === selectedPlaylist)) {
+      setSelectedPlaylist('all')
+    }
+    return next
+  }
+
+  useEffect(() => {
+    api.playlists().then(setPlaylists).catch(() => setPlaylists([]))
+  }, [])
+
+  useEffect(() => {
+    setArtist('all')
+    if (selectedPlaylist === 'all') {
+      setPlaylistSongIds(new Set())
+      return
+    }
+    let alive = true
+    api.playlistSongs(selectedPlaylist)
+      .then((items) => { if (alive) setPlaylistSongIds(new Set(items.map((song) => song.id))) })
+      .catch(() => { if (alive) setPlaylistSongIds(new Set()) })
+    return () => { alive = false }
+  }, [selectedPlaylist])
+
   const ready = useMemo(() => localSongs.filter((s) => s.status === 'ready'), [localSongs])
   const others = useMemo(() => localSongs.filter((s) => s.status !== 'ready'), [localSongs])
+  const playlistReady = useMemo(
+    () => selectedPlaylist === 'all' ? ready : ready.filter((song) => playlistSongIds.has(song.id)),
+    [playlistSongIds, ready, selectedPlaylist],
+  )
+  const artists = useMemo(
+    () => Array.from(new Set(playlistReady.map((song) => song.artist).filter(Boolean)))
+      .sort((a, b) => a.localeCompare(b, 'zh-CN')),
+    [playlistReady],
+  )
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return ready
-    return ready.filter(
+    return playlistReady.filter(
       (s) =>
-        s.title.toLowerCase().includes(q) ||
-        s.artist.toLowerCase().includes(q) ||
-        (s.album || '').toLowerCase().includes(q) ||
-        (s.raw_title || '').toLowerCase().includes(q),
+        (artist === 'all' || s.artist === artist) &&
+        (!q ||
+          s.title.toLowerCase().includes(q) ||
+          s.artist.toLowerCase().includes(q) ||
+          (s.album || '').toLowerCase().includes(q) ||
+          (s.raw_title || '').toLowerCase().includes(q)),
     )
-  }, [ready, query])
+  }, [artist, playlistReady, query])
+
+  const refreshPlaylistContext = async () => {
+    const next = await refreshPlaylists()
+    if (selectedPlaylist !== 'all' && next.some((playlist) => playlist.id === selectedPlaylist)) {
+      const items = await api.playlistSongs(selectedPlaylist)
+      setPlaylistSongIds(new Set(items.map((song) => song.id)))
+    }
+  }
 
   const setLayout = (next: LibraryLayout) => {
     setLayoutState(next)
@@ -385,7 +630,8 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
         <div>
           <h1 className="text-3xl font-semibold tracking-tight mb-1.5">曲库</h1>
           <p className="text-sm text-muted">
-            {ready.length} 首歌曲{others.length > 0 ? ` · ${others.length} 首处理中/失败` : ''}
+            {selectedPlaylist === 'all' ? `${ready.length} 首歌曲` : `${filtered.length} 首筛选结果`}
+            {others.length > 0 ? ` · ${others.length} 首处理中/失败` : ''}
           </p>
         </div>
         <div className="flex flex-col items-stretch gap-2 sm:items-end">
@@ -431,7 +677,25 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
               <List size={13} /> 列表
             </button>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <select
+              value={selectedPlaylist}
+              onChange={(e) => setSelectedPlaylist(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+              aria-label="选择歌单"
+              className="min-w-0 max-w-40 rounded-xl border border-line bg-panel px-3 py-2 text-sm focus:border-accent/50 focus:outline-none"
+            >
+              <option value="all">全部歌曲</option>
+              {playlists.map((playlist) => <option key={playlist.id} value={playlist.id}>{playlist.name} · {playlist.song_count}</option>)}
+            </select>
+            <select
+              value={artist}
+              onChange={(e) => setArtist(e.target.value)}
+              aria-label="按歌手筛选"
+              className="min-w-0 max-w-36 rounded-xl border border-line bg-panel px-3 py-2 text-sm focus:border-accent/50 focus:outline-none"
+            >
+              <option value="all">全部歌手</option>
+              {artists.map((name) => <option key={name} value={name}>{name}</option>)}
+            </select>
             <div className="relative flex-1 sm:flex-none">
               <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
               <input
@@ -441,6 +705,13 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
                 className="w-full sm:w-56 bg-panel border border-line rounded-xl pl-9 pr-3 py-2 text-sm placeholder:text-faint focus:outline-none focus:border-accent/50 transition-colors"
               />
             </div>
+            <button
+              onClick={() => setManagingPlaylists(true)}
+              title="管理歌单"
+              className="p-2.5 rounded-xl bg-panel border border-line text-muted hover:text-accent transition-colors"
+            >
+              <FolderPlus size={15} />
+            </button>
             <button
               onClick={onRefresh}
               title="刷新"
@@ -544,7 +815,7 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
                       <div className="pointer-events-none relative z-10 w-10 shrink-0 text-right text-[11px] tabular-nums text-faint">
                         {song.duration ? fmtTime(song.duration) : '—'}
                       </div>
-                      <SongActions song={song} onEdit={setEditing} onDelete={setDeleting} />
+                      <SongActions song={song} onEdit={setEditing} onDelete={setDeleting} onPlaylist={setPlaylistTarget} />
                     </div>
                   )
                 }
@@ -602,7 +873,7 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
                         </div>
                       </div>
                       <div className="mt-1.5 flex justify-end">
-                        <SongActions song={song} onEdit={setEditing} onDelete={setDeleting} />
+                        <SongActions song={song} onEdit={setEditing} onDelete={setDeleting} onPlaylist={setPlaylistTarget} />
                       </div>
                     </div>
                   </div>
@@ -683,6 +954,24 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
             setLocalSongs((prev) => prev.filter((s) => s.id !== deleting.id))
             onRefresh()
           }}
+        />
+      )}
+
+      {managingPlaylists && (
+        <PlaylistManager
+          playlists={playlists}
+          onClose={() => setManagingPlaylists(false)}
+          onChanged={refreshPlaylistContext}
+        />
+      )}
+
+      {playlistTarget && (
+        <AddToPlaylistModal
+          song={playlistTarget}
+          playlists={playlists}
+          activePlaylistId={selectedPlaylist === 'all' ? null : selectedPlaylist}
+          onClose={() => setPlaylistTarget(null)}
+          onChanged={refreshPlaylistContext}
         />
       )}
     </div>

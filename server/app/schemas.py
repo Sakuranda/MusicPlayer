@@ -25,3 +25,7 @@ class StartRequest(BaseModel):
     # 可选：只下载部分 bvid（用户勾选）
     bvids: Optional[list[str]] = None
     fetch_lyrics: bool = True
+
+
+class PlaylistWrite(BaseModel):
+    name: str

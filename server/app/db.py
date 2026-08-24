@@ -50,6 +50,23 @@ CREATE TABLE IF NOT EXISTS songs (
     error       TEXT,
     created_at  TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS playlists (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT UNIQUE NOT NULL,
+    created_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS playlist_songs (
+    playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+    song_id     INTEGER NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+    position    INTEGER NOT NULL DEFAULT 0,
+    added_at    TEXT NOT NULL,
+    PRIMARY KEY (playlist_id, song_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_playlist_songs_order
+ON playlist_songs (playlist_id, position, added_at);
 """
 
 # 旧库迁移：补充分P相关列
@@ -220,3 +237,81 @@ def delete_song(conn: sqlite3.Connection, sid: int) -> dict | None:
         conn.commit()
         return _song_row(row)
     return None
+
+
+# ---------- playlists ----------
+
+def list_playlists(conn: sqlite3.Connection) -> list[dict]:
+    rows = conn.execute(
+        "SELECT p.*, COUNT(ps.song_id) AS song_count "
+        "FROM playlists p LEFT JOIN playlist_songs ps ON ps.playlist_id = p.id "
+        "GROUP BY p.id ORDER BY p.created_at, p.id"
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def create_playlist(conn: sqlite3.Connection, name: str) -> dict:
+    cur = conn.execute(
+        "INSERT INTO playlists (name, created_at) VALUES (?, ?)",
+        (name, now()),
+    )
+    conn.commit()
+    return dict(conn.execute(
+        "SELECT p.*, 0 AS song_count FROM playlists p WHERE id = ?",
+        (cur.lastrowid,),
+    ).fetchone())
+
+
+def get_playlist(conn: sqlite3.Connection, playlist_id: int) -> dict | None:
+    row = conn.execute(
+        "SELECT p.*, COUNT(ps.song_id) AS song_count "
+        "FROM playlists p LEFT JOIN playlist_songs ps ON ps.playlist_id = p.id "
+        "WHERE p.id = ? GROUP BY p.id",
+        (playlist_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def rename_playlist(conn: sqlite3.Connection, playlist_id: int, name: str) -> dict | None:
+    conn.execute("UPDATE playlists SET name = ? WHERE id = ?", (name, playlist_id))
+    conn.commit()
+    return get_playlist(conn, playlist_id)
+
+
+def delete_playlist(conn: sqlite3.Connection, playlist_id: int) -> bool:
+    cur = conn.execute("DELETE FROM playlists WHERE id = ?", (playlist_id,))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def list_playlist_songs(conn: sqlite3.Connection, playlist_id: int) -> list[dict]:
+    rows = conn.execute(
+        "SELECT s.* FROM playlist_songs ps "
+        "JOIN songs s ON s.id = ps.song_id "
+        "WHERE ps.playlist_id = ? ORDER BY ps.position, ps.added_at, s.id",
+        (playlist_id,),
+    ).fetchall()
+    return [_song_row(row) for row in rows]
+
+
+def add_song_to_playlist(conn: sqlite3.Connection, playlist_id: int, song_id: int) -> bool:
+    position = conn.execute(
+        "SELECT COALESCE(MAX(position), -1) + 1 FROM playlist_songs WHERE playlist_id = ?",
+        (playlist_id,),
+    ).fetchone()[0]
+    cur = conn.execute(
+        "INSERT OR IGNORE INTO playlist_songs "
+        "(playlist_id, song_id, position, added_at) VALUES (?, ?, ?, ?)",
+        (playlist_id, song_id, position, now()),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def remove_song_from_playlist(conn: sqlite3.Connection, playlist_id: int, song_id: int) -> bool:
+    cur = conn.execute(
+        "DELETE FROM playlist_songs WHERE playlist_id = ? AND song_id = ?",
+        (playlist_id, song_id),
+    )
+    conn.commit()
+    return cur.rowcount > 0

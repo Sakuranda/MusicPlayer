@@ -3,6 +3,7 @@ import csv
 import io
 import logging
 import os
+import sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -13,12 +14,15 @@ from fastapi.staticfiles import StaticFiles
 
 from .bilibili import BiliError
 from .config import API_TOKEN, COVER_DIR, MUSIC_DIR
-from .db import (delete_song, get_conn, get_job, get_song, list_jobs,
-                 list_songs, recover_interrupted_downloads, update_song)
+from .db import (add_song_to_playlist, create_playlist, delete_playlist,
+                 delete_song, get_conn, get_job, get_playlist, get_song,
+                 list_jobs, list_playlist_songs, list_playlists, list_songs,
+                 recover_interrupted_downloads, remove_song_from_playlist,
+                 rename_playlist, update_song)
 from . import downloader, lyrics
 from .importer import (ImportError, is_job_active, is_song_active,
                        parse_and_store, start_download)
-from .schemas import ImportRequest, SongUpdate, StartRequest
+from .schemas import ImportRequest, PlaylistWrite, SongUpdate, StartRequest
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -251,6 +255,79 @@ def song_delete(sid: int):
         raise HTTPException(404, "歌曲不存在")
     _remove_file(song)
     return {"deleted": True}
+
+
+# ---------- 歌单 ----------
+
+def _playlist_name(name: str) -> str:
+    clean = " ".join(name.strip().split())
+    if not clean:
+        raise HTTPException(400, "歌单名称不能为空")
+    if len(clean) > 80:
+        raise HTTPException(400, "歌单名称不能超过 80 个字符")
+    return clean
+
+
+@app.get("/api/playlists")
+def playlists():
+    conn = get_conn()
+    return list_playlists(conn)
+
+
+@app.post("/api/playlists", status_code=201)
+def playlist_create(req: PlaylistWrite):
+    conn = get_conn()
+    try:
+        return create_playlist(conn, _playlist_name(req.name))
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(409, "已经有同名歌单") from exc
+
+
+@app.patch("/api/playlists/{playlist_id}")
+def playlist_rename(playlist_id: int, req: PlaylistWrite):
+    conn = get_conn()
+    if not get_playlist(conn, playlist_id):
+        raise HTTPException(404, "歌单不存在")
+    try:
+        return rename_playlist(conn, playlist_id, _playlist_name(req.name))
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(409, "已经有同名歌单") from exc
+
+
+@app.delete("/api/playlists/{playlist_id}")
+def playlist_delete(playlist_id: int):
+    conn = get_conn()
+    if not delete_playlist(conn, playlist_id):
+        raise HTTPException(404, "歌单不存在")
+    return {"deleted": True}
+
+
+@app.get("/api/playlists/{playlist_id}/songs")
+def playlist_songs(playlist_id: int):
+    conn = get_conn()
+    if not get_playlist(conn, playlist_id):
+        raise HTTPException(404, "歌单不存在")
+    return list_playlist_songs(conn, playlist_id)
+
+
+@app.post("/api/playlists/{playlist_id}/songs/{sid}")
+def playlist_song_add(playlist_id: int, sid: int):
+    conn = get_conn()
+    if not get_playlist(conn, playlist_id):
+        raise HTTPException(404, "歌单不存在")
+    if not get_song(conn, sid):
+        raise HTTPException(404, "歌曲不存在")
+    added = add_song_to_playlist(conn, playlist_id, sid)
+    return {"added": added}
+
+
+@app.delete("/api/playlists/{playlist_id}/songs/{sid}")
+def playlist_song_remove(playlist_id: int, sid: int):
+    conn = get_conn()
+    if not get_playlist(conn, playlist_id):
+        raise HTTPException(404, "歌单不存在")
+    removed = remove_song_from_playlist(conn, playlist_id, sid)
+    return {"removed": removed}
 
 
 # ---------- 媒体 ----------
