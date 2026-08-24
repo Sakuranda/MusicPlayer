@@ -29,3 +29,10 @@ class StartRequest(BaseModel):
 
 class PlaylistWrite(BaseModel):
     name: str
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+    captcha_id: str
+    captcha: str

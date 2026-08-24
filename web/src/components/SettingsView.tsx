@@ -1,20 +1,28 @@
-import { useState } from 'react'
-import { Check, Download, ExternalLink, Loader2, Smartphone } from 'lucide-react'
-import { api, getBase, getToken, setBase, setToken } from '../lib/api'
+import { useEffect, useState } from 'react'
+import { Check, Download, ExternalLink, Globe2, Loader2, LogOut, Smartphone } from 'lucide-react'
+import { api, getBase, setBase } from '../lib/api'
+import type { AccessAudit } from '../types'
 
 interface Props {
   onSaved: () => void
+  username?: string | null
+  authEnabled: boolean
+  onLogout: () => void
 }
 
-export default function SettingsView({ onSaved }: Props) {
+export default function SettingsView({ onSaved, username, authEnabled, onLogout }: Props) {
   const [base, setBaseLocal] = useState(getBase())
-  const [token, setTokenLocal] = useState(getToken())
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<'ok' | 'fail' | null>(null)
+  const [audit, setAudit] = useState<AccessAudit | null>(null)
+  const [auditError, setAuditError] = useState('')
+
+  useEffect(() => {
+    api.accessAudit().then(setAudit).catch((e) => setAuditError(e instanceof Error ? e.message : String(e)))
+  }, [])
 
   const save = () => {
     setBase(base.trim().replace(/\/+$/, ''))
-    setToken(token.trim())
     onSaved()
   }
 
@@ -22,9 +30,9 @@ export default function SettingsView({ onSaved }: Props) {
     setTesting(true)
     setTestResult(null)
     setBase(base.trim().replace(/\/+$/, ''))
-    setToken(token.trim())
     try {
-      await api.health()
+      const status = await api.authStatus()
+      if (!status.authenticated) throw new Error('会话无效')
       setTestResult('ok')
     } catch {
       setTestResult('fail')
@@ -52,17 +60,6 @@ export default function SettingsView({ onSaved }: Props) {
           本地开发留空即可（Vite 会自动代理到 localhost:8080）；正式使用填服务器地址
         </p>
 
-        <label className="block text-sm text-muted mb-1.5 mt-5">API Token（可选）</label>
-        <input
-          value={token}
-          onChange={(e) => setTokenLocal(e.target.value)}
-          placeholder="与服务器环境变量 API_TOKEN 保持一致"
-          className="w-full bg-bg2 border border-line rounded-xl px-3 py-3 text-sm placeholder:text-faint focus:outline-none focus:border-accent/60 transition-colors"
-        />
-        <p className="text-[11px] text-faint mt-1.5">
-          服务器部署时如果设置了 API_TOKEN，这里填同一个值；留空则不校验
-        </p>
-
         <div className="flex items-center gap-3 mt-5">
           <button
             onClick={test}
@@ -72,8 +69,52 @@ export default function SettingsView({ onSaved }: Props) {
             {testing ? <Loader2 size={15} className="spin" /> : <Check size={15} />} 测试连接
           </button>
           {testResult === 'ok' && <span className="text-sm text-emerald-500">✓ 连接成功</span>}
-          {testResult === 'fail' && <span className="text-sm text-danger">✗ 连接失败，请检查地址与 Token</span>}
+          {testResult === 'fail' && <span className="text-sm text-danger">✗ 连接失败或登录已失效</span>}
         </div>
+      </div>
+
+      {/* 登录与访问记录 */}
+      <div className="mb-6 rounded-2xl border border-line bg-panel p-5 sm:p-6">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Globe2 size={17} className="text-accent" />
+            <div>
+              <h2 className="text-base font-medium">登录与访问记录</h2>
+              <p className="mt-0.5 text-[11px] text-faint">只记录成功登录后的 IP、属地和访问时间</p>
+            </div>
+          </div>
+          {authEnabled && (
+            <button
+              onClick={async () => { await api.logout(); onLogout() }}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-line bg-panel2 px-3 py-2 text-xs text-muted hover:text-danger"
+            ><LogOut size={14} /> 退出{username ? ` ${username}` : ''}</button>
+          )}
+        </div>
+        {audit ? (
+          <>
+            <div className="mb-4 grid grid-cols-2 gap-3">
+              <div className="rounded-xl bg-bg2 p-3"><div className="text-2xl font-semibold text-ink">{audit.unique_ip_count}</div><div className="mt-1 text-[11px] text-faint">成功访问 IP</div></div>
+              <div className="rounded-xl bg-bg2 p-3"><div className="text-2xl font-semibold text-ink">{audit.successful_sessions}</div><div className="mt-1 text-[11px] text-faint">成功登录次数</div></div>
+            </div>
+            <div className="max-h-80 space-y-2 overflow-y-auto">
+              {audit.entries.map((entry) => {
+                const location = [entry.country, entry.region, entry.city].filter(Boolean).join(' · ') || '属地暂不可用'
+                return (
+                  <div key={entry.id} className="rounded-xl border border-line bg-bg2 px-3 py-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-1.5">
+                      <span className="font-mono text-xs text-ink">{entry.ip}</span>
+                      <span className="text-[10px] text-faint">{new Date(entry.login_at).toLocaleString('zh-CN')}</span>
+                    </div>
+                    <div className="mt-1 flex flex-wrap justify-between gap-1 text-[11px] text-muted">
+                      <span>{location}</span><span>最近 {new Date(entry.last_seen).toLocaleString('zh-CN')} · {entry.request_count} 次活跃记录</span>
+                    </div>
+                  </div>
+                )
+              })}
+              {!audit.entries.length && <p className="py-6 text-center text-xs text-faint">还没有成功登录记录</p>}
+            </div>
+          </>
+        ) : auditError ? <p className="text-xs text-danger">{auditError}</p> : <div className="flex items-center gap-2 text-xs text-faint"><Loader2 size={14} className="spin" /> 加载访问记录…</div>}
       </div>
 
       {/* iOS 播放 */}

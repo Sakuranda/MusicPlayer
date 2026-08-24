@@ -18,6 +18,11 @@ services:
       - COVER_MAX_SIZE=320
       - COVER_QUALITY=70
       - API_TOKEN=${API_TOKEN:-}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      - AUTH_SECRET=${AUTH_SECRET:-}
+      - SESSION_TTL_HOURS=${SESSION_TTL_HOURS:-720}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-https://music.sakuranda.site}
     ports:
       - "8080:8080"
 

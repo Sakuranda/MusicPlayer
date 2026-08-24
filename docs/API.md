@@ -4,7 +4,21 @@ MusicPlayer 后端（FastAPI）接口文档。基础地址：`https://music.saku
 
 ## 认证
 
-部署时若设置了 `API_TOKEN`（`deploy/.env`），除 `/api/health` 外所有 `/api/*` 请求需携带令牌，两种方式任选：
+网页端默认使用 `ADMIN_USERNAME` / `ADMIN_PASSWORD` 登录，并在登录前填写一次性图片验证码。登录成功后服务器设置 HttpOnly、SameSite=Lax 的签名会话 Cookie，默认有效 30 天；连续登录失败会触发按 IP 限流。
+
+无需登录的端点：`/api/health`、`/api/auth/status`、`/api/auth/captcha`、`/api/auth/login`、`/api/auth/logout`。其余 `/api/*` 需要有效会话。
+
+登录接口：
+
+```
+GET  /api/auth/status   → {enabled, authenticated, username}
+GET  /api/auth/captcha  → {id, image, expires_in}   // image 为 data URL，5 分钟有效
+POST /api/auth/login    {username,password,captcha_id,captcha}
+POST /api/auth/logout
+GET  /api/auth/access-audit → 成功登录 IP 数、属地、登录/最近访问时间和分钟级活跃记录数
+```
+
+`API_TOKEN` 保留给脚本、Navidrome 之外的旧客户端和应急管理。设置后可用以下任一方式代替网页登录会话：
 
 ```http
 X-Api-Token: <token>
@@ -16,7 +30,7 @@ X-Api-Token: <token>
 /api/stream/1?token=<token>
 ```
 
-未带令牌返回 `401 {"detail": "需要有效的 API Token"}`。
+未认证返回 `401 {"detail": "请先登录"}`。查询参数令牌仅应用于 `<audio>`、封面、CSV 等无法添加自定义请求头的兼容场景，不应出现在普通网页链接中。
 
 ## 数据结构
 

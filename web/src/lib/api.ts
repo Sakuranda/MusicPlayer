@@ -1,4 +1,4 @@
-import type { Job, JobDetail, Playlist, Song } from '../types'
+import type { AccessAudit, AuthStatus, CaptchaChallenge, Job, JobDetail, Playlist, Song } from '../types'
 
 const LS_BASE = 'mp_api_base'
 const LS_TOKEN = 'mp_api_token'
@@ -28,7 +28,7 @@ async function req<T>(path: string, opts: RequestInit = {}, retried = false): Pr
   if (typeof opts.body === 'string') headers['Content-Type'] = 'application/json'
   let res: Response
   try {
-    res = await fetch(getBase() + path, { ...opts, headers })
+    res = await fetch(getBase() + path, { ...opts, headers, credentials: 'include' })
   } catch {
     throw new Error('无法连接服务器，请检查设置中的服务器地址')
   }
@@ -58,6 +58,15 @@ function withToken(q: string): string {
 
 export const api = {
   health: () => req<{ ok: boolean }>('/api/health'),
+  authStatus: () => req<AuthStatus>('/api/auth/status'),
+  captcha: () => req<CaptchaChallenge>('/api/auth/captcha'),
+  login: (username: string, password: string, captchaId: string, captcha: string) =>
+    req<{ authenticated: boolean; username: string }>('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password, captcha_id: captchaId, captcha }),
+    }),
+  logout: () => req<{ logged_out: boolean }>('/api/auth/logout', { method: 'POST' }),
+  accessAudit: () => req<AccessAudit>('/api/auth/access-audit'),
 
   createJob: (url: string, cookie?: string, album?: string) =>
     req<JobDetail>('/api/jobs', {

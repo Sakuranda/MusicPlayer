@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
-import { api } from './lib/api'
+import { api, getToken, setToken } from './lib/api'
 import { PlayerProvider } from './hooks/usePlayer'
 import Sidebar from './components/Sidebar'
 import LibraryView from './components/LibraryView'
 import ImportView from './components/ImportView'
 import SettingsView from './components/SettingsView'
 import PlayerBar from './components/PlayerBar'
-import type { Song } from './types'
+import LoginView from './components/LoginView'
+import type { AuthStatus, Song } from './types'
 
 export type View = 'library' | 'import' | 'settings'
 
@@ -14,24 +15,51 @@ export default function App() {
   const [view, setView] = useState<View>('library')
   const [songs, setSongs] = useState<Song[]>([])
   const [serverOk, setServerOk] = useState<boolean | null>(null)
+  const [auth, setAuth] = useState<AuthStatus | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
     let alive = true
-    api.health()
-      .then(() => alive && setServerOk(true))
-      .catch(() => alive && setServerOk(false))
+    Promise.all([api.health(), api.authStatus()])
+      .then(([, status]) => {
+        if (!alive) return
+        // 旧版网页曾把 API Token 存在 localStorage。启用账户登录后主动迁移掉，
+        // 避免浏览器继续走脚本兼容通道而绕过登录审计。
+        if (status.enabled && getToken()) {
+          setToken('')
+          if (!status.username) status = { ...status, authenticated: false }
+        }
+        setServerOk(true)
+        setAuth(status)
+      })
+      .catch(() => {
+        if (!alive) return
+        setServerOk(false)
+        setAuth(null)
+      })
     return () => { alive = false }
   }, [refreshKey])
 
   useEffect(() => {
-    if (!serverOk) return
+    if (!serverOk || !auth?.authenticated) return
     let alive = true
     api.songs()
       .then((s) => alive && setSongs(s))
       .catch(() => alive && setServerOk(false))
     return () => { alive = false }
-  }, [serverOk, refreshKey])
+  }, [serverOk, auth?.authenticated, refreshKey])
+
+  if (serverOk === null) {
+    return <div className="grid h-full place-items-center bg-bg text-sm text-muted">正在连接私人曲库…</div>
+  }
+
+  if (serverOk === false || (auth?.enabled && !auth.authenticated)) {
+    return <LoginView onLoggedIn={() => {
+      setAuth({ enabled: true, authenticated: true, username: null })
+      setServerOk(true)
+      setRefreshKey((key) => key + 1)
+    }} />
+  }
 
   return (
     <PlayerProvider>
@@ -58,6 +86,13 @@ export default function App() {
           {view === 'settings' && (
             <SettingsView
               onSaved={() => setRefreshKey((k) => k + 1)}
+              username={auth?.username}
+              authEnabled={Boolean(auth?.enabled)}
+              onLogout={() => {
+                setSongs([])
+                setAuth({ enabled: true, authenticated: false, username: null })
+                setView('library')
+              }}
             />
           )}
         </main>

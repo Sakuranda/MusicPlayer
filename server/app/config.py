@@ -45,3 +45,17 @@ except ValueError:
 
 # 公网部署时建议设置 API 访问令牌（前端设置页里填同一个值）
 API_TOKEN = os.environ.get("API_TOKEN", "")
+
+# 网页管理端使用账号密码 + 图片验证码登录；API_TOKEN 继续作为脚本/应急兼容通道。
+ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
+AUTH_SECRET = os.environ.get("AUTH_SECRET", "") or API_TOKEN
+SESSION_TTL_HOURS = _bounded_int("SESSION_TTL_HOURS", 24 * 30, 1, 24 * 365)
+ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get(
+        "ALLOWED_ORIGINS",
+        "https://music.sakuranda.site,http://localhost:5173,http://127.0.0.1:5173",
+    ).split(",")
+    if origin.strip()
+]

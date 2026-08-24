@@ -67,6 +67,25 @@ CREATE TABLE IF NOT EXISTS playlist_songs (
 
 CREATE INDEX IF NOT EXISTS idx_playlist_songs_order
 ON playlist_songs (playlist_id, position, added_at);
+
+CREATE TABLE IF NOT EXISTS access_sessions (
+    id            TEXT PRIMARY KEY,
+    username      TEXT NOT NULL,
+    ip            TEXT NOT NULL,
+    country       TEXT,
+    region        TEXT,
+    city          TEXT,
+    user_agent    TEXT,
+    login_at      TEXT NOT NULL,
+    last_seen     TEXT NOT NULL,
+    request_count INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE INDEX IF NOT EXISTS idx_access_sessions_login
+ON access_sessions (login_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_access_sessions_ip
+ON access_sessions (ip);
 """
 
 # 旧库迁移：补充分P相关列
@@ -315,3 +334,46 @@ def remove_song_from_playlist(conn: sqlite3.Connection, playlist_id: int, song_i
     )
     conn.commit()
     return cur.rowcount > 0
+
+
+# ---------- successful access audit ----------
+
+def add_access_session(conn: sqlite3.Connection, data: dict) -> None:
+    conn.execute(
+        "INSERT INTO access_sessions "
+        "(id, username, ip, country, region, city, user_agent, login_at, last_seen) "
+        "VALUES (:id, :username, :ip, :country, :region, :city, :user_agent, :login_at, :last_seen)",
+        data,
+    )
+    conn.commit()
+
+
+def touch_access_session(conn: sqlite3.Connection, session_id: str) -> None:
+    conn.execute(
+        "UPDATE access_sessions SET last_seen = ?, request_count = request_count + 1 WHERE id = ?",
+        (now(), session_id),
+    )
+    conn.commit()
+
+
+def cached_ip_location(conn: sqlite3.Connection, ip: str) -> dict | None:
+    row = conn.execute(
+        "SELECT country, region, city FROM access_sessions "
+        "WHERE ip = ? AND country IS NOT NULL ORDER BY login_at DESC LIMIT 1",
+        (ip,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def access_audit(conn: sqlite3.Connection, limit: int = 100) -> dict:
+    summary = conn.execute(
+        "SELECT COUNT(*) AS successful_sessions, COUNT(DISTINCT ip) AS unique_ip_count, "
+        "MAX(last_seen) AS latest_access FROM access_sessions"
+    ).fetchone()
+    rows = conn.execute(
+        "SELECT id, username, ip, country, region, city, user_agent, "
+        "login_at, last_seen, request_count FROM access_sessions "
+        "ORDER BY login_at DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    return {**dict(summary), "entries": [dict(row) for row in rows]}

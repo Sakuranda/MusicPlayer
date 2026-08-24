@@ -4,6 +4,7 @@ import io
 import logging
 import os
 import sqlite3
+import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -13,16 +14,17 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 
 from .bilibili import BiliError
-from .config import API_TOKEN, COVER_DIR, MUSIC_DIR
-from .db import (add_song_to_playlist, create_playlist, delete_playlist,
+from .config import ALLOWED_ORIGINS, API_TOKEN, COVER_DIR, MUSIC_DIR, SESSION_TTL_HOURS
+from .db import (access_audit, add_access_session, add_song_to_playlist,
+                 cached_ip_location, create_playlist, delete_playlist,
                  delete_song, get_conn, get_job, get_playlist, get_song,
                  list_jobs, list_playlist_songs, list_playlists, list_songs,
-                 recover_interrupted_downloads, remove_song_from_playlist,
-                 rename_playlist, update_song)
-from . import downloader, lyrics
+                 now, recover_interrupted_downloads, remove_song_from_playlist,
+                 rename_playlist, touch_access_session, update_song)
+from . import auth as auth_service, downloader, lyrics
 from .importer import (ImportError, is_job_active, is_song_active,
                        parse_and_store, start_download)
-from .schemas import ImportRequest, PlaylistWrite, SongUpdate, StartRequest
+from .schemas import ImportRequest, LoginRequest, PlaylistWrite, SongUpdate, StartRequest
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -42,25 +44,138 @@ app = FastAPI(title="MusicPlayer API", version="0.2.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
+PUBLIC_API_PATHS = {
+    "/api/health",
+    "/api/auth/status",
+    "/api/auth/captcha",
+    "/api/auth/login",
+    "/api/auth/logout",
+}
+
+
 @app.middleware("http")
-async def api_token_guard(request: Request, call_next):
-    """设置了 API_TOKEN 时，要求 X-Api-Token 请求头或 ?token= 参数（health 除外）。"""
-    if API_TOKEN and request.url.path.startswith("/api") and request.url.path != "/api/health":
-        token = request.headers.get("X-Api-Token") or request.query_params.get("token")
-        if token != API_TOKEN:
-            return JSONResponse({"detail": "需要有效的 API Token"}, status_code=401)
+async def authentication_guard(request: Request, call_next):
+    """网页会话为主，API Token 作为脚本与旧客户端兼容通道。"""
+    session = auth_service.verify_session(request.cookies.get(auth_service.COOKIE_NAME))
+    token = request.headers.get("X-Api-Token") or request.query_params.get("token")
+    token_valid = bool(API_TOKEN and token and secrets.compare_digest(token, API_TOKEN))
+    request.state.auth = session
+    request.state.token_authenticated = token_valid
+
+    protected = (
+        request.method != "OPTIONS"
+        and request.url.path.startswith("/api")
+        and request.url.path not in PUBLIC_API_PATHS
+    )
+    auth_required = auth_service.enabled() or bool(API_TOKEN)
+    if protected and auth_required and not session and not token_valid:
+        return JSONResponse({"detail": "请先登录"}, status_code=401)
+
+    if session and request.url.path.startswith("/api") and auth_service.should_touch(session["sid"]):
+        conn = get_conn()
+        try:
+            touch_access_session(conn, session["sid"])
+        finally:
+            conn.close()
     return await call_next(request)
 
 
 @app.get("/api/health")
 def health():
     return {"ok": True, "service": "musicplayer"}
+
+
+# ---------- 登录与访问审计 ----------
+
+@app.get("/api/auth/status")
+def auth_status(request: Request):
+    session = request.state.auth
+    disabled = not auth_service.enabled()
+    return {
+        "enabled": not disabled,
+        "authenticated": disabled or bool(session) or request.state.token_authenticated,
+        "username": session.get("sub") if session else None,
+    }
+
+
+@app.get("/api/auth/captcha")
+def auth_captcha():
+    if not auth_service.enabled():
+        raise HTTPException(404, "登录鉴权未启用")
+    return auth_service.create_captcha()
+
+
+@app.post("/api/auth/login")
+def auth_login(req: LoginRequest, request: Request):
+    if not auth_service.enabled():
+        raise HTTPException(400, "服务器未启用网页登录")
+    ip = auth_service.client_ip(
+        request.client.host if request.client else None,
+        request.headers.get("X-Forwarded-For"),
+    )
+    allowed, retry_after = auth_service.login_allowed(ip)
+    if not allowed:
+        raise HTTPException(429, f"尝试次数过多，请 {retry_after} 秒后再试")
+    if not auth_service.consume_captcha(req.captcha_id, req.captcha):
+        auth_service.record_failure(ip)
+        raise HTTPException(400, "验证码错误或已过期，请刷新后重试")
+    if not auth_service.credentials_valid(req.username, req.password):
+        auth_service.record_failure(ip)
+        raise HTTPException(401, "账户或密码错误")
+
+    auth_service.clear_failures(ip)
+    token, session_id = auth_service.create_session(req.username)
+    conn = get_conn()
+    try:
+        location = cached_ip_location(conn, ip) or auth_service.lookup_location(ip)
+        timestamp = now()
+        add_access_session(conn, {
+            "id": session_id,
+            "username": req.username,
+            "ip": ip,
+            **location,
+            "user_agent": request.headers.get("User-Agent", "")[:500],
+            "login_at": timestamp,
+            "last_seen": timestamp,
+        })
+    finally:
+        conn.close()
+
+    response = JSONResponse({"authenticated": True, "username": req.username})
+    forwarded_proto = request.headers.get("X-Forwarded-Proto", "")
+    response.set_cookie(
+        auth_service.COOKIE_NAME,
+        token,
+        max_age=SESSION_TTL_HOURS * 3600,
+        httponly=True,
+        secure=request.url.scheme == "https" or forwarded_proto == "https",
+        samesite="lax",
+        path="/",
+    )
+    return response
+
+
+@app.post("/api/auth/logout")
+def auth_logout():
+    response = JSONResponse({"logged_out": True})
+    response.delete_cookie(auth_service.COOKIE_NAME, path="/")
+    return response
+
+
+@app.get("/api/auth/access-audit")
+def auth_access_audit():
+    conn = get_conn()
+    try:
+        return access_audit(conn)
+    finally:
+        conn.close()
 
 
 # ---------- 导入任务 ----------

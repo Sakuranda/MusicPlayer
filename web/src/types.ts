@@ -58,3 +58,35 @@ export interface Playlist {
   song_count: number
   created_at: string
 }
+
+export interface AuthStatus {
+  enabled: boolean
+  authenticated: boolean
+  username: string | null
+}
+
+export interface CaptchaChallenge {
+  id: string
+  image: string
+  expires_in: number
+}
+
+export interface AccessEntry {
+  id: string
+  username: string
+  ip: string
+  country: string | null
+  region: string | null
+  city: string | null
+  user_agent: string | null
+  login_at: string
+  last_seen: string
+  request_count: number
+}
+
+export interface AccessAudit {
+  successful_sessions: number
+  unique_ip_count: number
+  latest_access: string | null
+  entries: AccessEntry[]
+}

@@ -29,6 +29,13 @@ class DatabaseConnectionTests(unittest.TestCase):
                         row[1] for row in second.execute("PRAGMA table_info(songs)").fetchall()
                     }
                     self.assertIn("lyrics_enabled", columns)
+                    tables = {
+                        row[0] for row in second.execute(
+                            "SELECT name FROM sqlite_master WHERE type = 'table'"
+                        ).fetchall()
+                    }
+                    self.assertIn("playlists", tables)
+                    self.assertIn("access_sessions", tables)
                 finally:
                     first.close()
                     second.close()
