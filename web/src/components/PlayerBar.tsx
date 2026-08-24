@@ -8,6 +8,9 @@ import {
   EyeOff,
   Pause,
   Play,
+  Repeat1,
+  Repeat2,
+  Shuffle,
   SkipBack,
   SkipForward,
   Volume2,
@@ -25,12 +28,14 @@ export default function PlayerBar() {
     duration,
     volume,
     expanded,
+    playbackMode,
     toggle,
     next,
     prev,
     seek,
     setVolume,
     setExpanded,
+    setPlaybackMode,
     queue,
   } = usePlayer()
   const [lyrics, setLyrics] = useState<string | null>(null)
@@ -79,6 +84,21 @@ export default function PlayerBar() {
 
   const pct = duration > 0 ? (time / duration) * 100 : 0
   const volPct = volume * 100
+  const modeMeta = playbackMode === 'shuffle'
+    ? { label: '随机播放', next: 'one' as const, Icon: Shuffle }
+    : playbackMode === 'one'
+      ? { label: '单曲循环', next: 'repeat' as const, Icon: Repeat1 }
+      : { label: '列表循环', next: 'shuffle' as const, Icon: Repeat2 }
+  const PlaybackModeButton = ({ large = false }: { large?: boolean }) => (
+    <button
+      onClick={() => setPlaybackMode(modeMeta.next)}
+      className={`${large ? 'p-3' : 'p-2'} rounded-full text-accent hover:text-accent-soft transition-colors`}
+      title={`${modeMeta.label}（点击切换）`}
+      aria-label={`${modeMeta.label}，点击切换播放模式`}
+    >
+      <modeMeta.Icon size={large ? 21 : 18} />
+    </button>
+  )
 
   const sliderStyle = (p: number) =>
     ({ '--range-bg': `linear-gradient(to right, #d97757 ${p}%, #3a362f ${p}%)` }) as React.CSSProperties
@@ -109,6 +129,7 @@ export default function PlayerBar() {
           </div>
 
           <div className="flex items-center gap-1.5 sm:mx-auto">
+            <PlaybackModeButton />
             <button onClick={prev} className="hidden sm:block p-2 rounded-full text-muted hover:text-ink transition-colors">
               <SkipBack size={19} fill="currentColor" />
             </button>
@@ -255,6 +276,7 @@ export default function PlayerBar() {
                   <span className="text-[11px] text-faint tabular-nums w-9">{fmtTime(duration)}</span>
                 </div>
                 <div className="flex items-center gap-2">
+                  <PlaybackModeButton large />
                   <button onClick={prev} className="p-3 rounded-full text-muted hover:text-ink transition-colors">
                     <SkipBack size={22} fill="currentColor" />
                   </button>

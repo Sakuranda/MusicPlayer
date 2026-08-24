@@ -1,6 +1,8 @@
 import { createContext, useContext } from 'react'
 import type { Song } from '../types'
 
+export type PlaybackMode = 'repeat' | 'shuffle' | 'one'
+
 export interface PlayerState {
   current: Song | null
   queue: Song[]
@@ -9,6 +11,7 @@ export interface PlayerState {
   duration: number
   volume: number
   expanded: boolean
+  playbackMode: PlaybackMode
   playSong: (song: Song, queue?: Song[]) => void
   toggle: () => void
   next: () => void
@@ -16,6 +19,7 @@ export interface PlayerState {
   seek: (time: number) => void
   setVolume: (volume: number) => void
   setExpanded: (expanded: boolean) => void
+  setPlaybackMode: (mode: PlaybackMode) => void
   playQueue: (songs: Song[], index?: number) => void
 }
 

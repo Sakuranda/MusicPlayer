@@ -7,7 +7,14 @@ import {
 } from 'react'
 import { api } from '../lib/api'
 import type { Song } from '../types'
-import { PlayerContext } from './playerContext'
+import { PlayerContext, type PlaybackMode } from './playerContext'
+
+const PLAYBACK_MODE_KEY = 'mp_playback_mode'
+
+function initialPlaybackMode(): PlaybackMode {
+  const saved = localStorage.getItem(PLAYBACK_MODE_KEY)
+  return saved === 'shuffle' || saved === 'one' ? saved : 'repeat'
+}
 
 export function PlayerProvider({ children }: { children: ReactNode }) {
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -19,6 +26,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [duration, setDuration] = useState(0)
   const [volume, setVolumeState] = useState(0.8)
   const [expanded, setExpanded] = useState(false)
+  const [playbackMode, setPlaybackModeState] = useState<PlaybackMode>(initialPlaybackMode)
 
   // 创建音频元素并绑定基础事件（只执行一次）
   useEffect(() => {
@@ -60,6 +68,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     a.play().catch(() => setPlaying(false))
   }, [])
 
+  const randomIndex = useCallback((length: number, currentIndex: number) => {
+    if (length <= 1) return 0
+    const offset = 1 + Math.floor(Math.random() * (length - 1))
+    return (currentIndex + offset) % length
+  }, [])
+
   // 播放结束自动切下一首（依赖 queue/index 重新绑定）
   useEffect(() => {
     const a = audioRef.current
@@ -69,12 +83,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         setPlaying(false)
         return
       }
-      const n = (index + 1) % queue.length
+      if (playbackMode === 'one') {
+        a.currentTime = 0
+        a.play().catch(() => setPlaying(false))
+        return
+      }
+      const n = playbackMode === 'shuffle'
+        ? randomIndex(queue.length, index)
+        : (index + 1) % queue.length
       start(queue[n], queue, n)
     }
     a.addEventListener('ended', onEnded)
     return () => a.removeEventListener('ended', onEnded)
-  }, [queue, index, start])
+  }, [queue, index, playbackMode, randomIndex, start])
 
   const playSong = useCallback((song: Song, songs?: Song[]) => {
     const a = audioRef.current
@@ -103,8 +124,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const next = useCallback(() => {
     if (!queue.length) return
-    start(queue[(index + 1) % queue.length], queue, (index + 1) % queue.length)
-  }, [queue, index, start])
+    const n = playbackMode === 'shuffle'
+      ? randomIndex(queue.length, index)
+      : (index + 1) % queue.length
+    start(queue[n], queue, n)
+  }, [queue, index, playbackMode, randomIndex, start])
 
   const prev = useCallback(() => {
     const a = audioRef.current
@@ -130,6 +154,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (audioRef.current) audioRef.current.volume = v
   }, [])
 
+  const setPlaybackMode = useCallback((mode: PlaybackMode) => {
+    setPlaybackModeState(mode)
+    localStorage.setItem(PLAYBACK_MODE_KEY, mode)
+  }, [])
+
   return (
     <PlayerContext.Provider
       value={{
@@ -140,6 +169,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         duration,
         volume,
         expanded,
+        playbackMode,
         playSong,
         toggle,
         next,
@@ -147,6 +177,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         seek,
         setVolume,
         setExpanded,
+        setPlaybackMode,
         playQueue,
       }}
     >
