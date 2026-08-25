@@ -88,6 +88,7 @@ c.commit()"'
 - Compose 不会默认读取 `deploy/.env`，而显式 `environment` 会覆盖 env_file；部署变量统一走可选的 `env_file: deploy/.env`，只保留固定 DATA_DIR。上线必须验证 auth/status 已启用且匿名 API 返回 401
 - 香港机房请求 ipwho.is 偶尔超过 2.5 秒；首次新 IP 查询使用 5 秒超时并将成功属地缓存到 SQLite，查询失败仍不得阻断登录
 - macOS 媒体键/iOS 锁屏使用 Media Session API；同步歌曲 metadata、playbackState、positionState，封面给绝对 URL。WebKit action 支持不齐，逐项 try/catch；系统 previoustrack 必须直接切上一首，不复用 UI 的 3 秒回到开头逻辑
+- React effect cleanup 会在依赖变化时执行，不等于组件卸载；Media Session 切歌时不可清空 metadata 或反复撤销 action handler，否则 macOS 会短暂把媒体焦点交给网易云等其他播放器。元数据直接覆盖，handler 注册一次并通过 ref 调用最新队列逻辑，仅在 PlayerProvider 真正卸载时清理
 
 ## 验证清单（每次改动后）
 

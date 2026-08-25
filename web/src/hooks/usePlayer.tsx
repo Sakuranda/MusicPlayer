@@ -151,6 +151,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     start(queue[n], queue, n)
   }, [queue, index, start])
 
+  // Media Session 的处理器只注册一次；通过 ref 读取最新队列，避免切歌时先撤销
+  // 系统按键处理器、再重新注册所产生的短暂媒体焦点空档。
+  const mediaTrackHandlersRef = useRef({ next, previousTrack })
+  useEffect(() => {
+    mediaTrackHandlersRef.current = { next, previousTrack }
+  }, [next, previousTrack])
+
   const seek = useCallback((t: number) => {
     const a = audioRef.current
     if (!a) return
@@ -181,9 +188,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
 
     document.title = `${current.title} — ${current.artist}`
-    if (!('mediaSession' in navigator)) {
-      return () => { document.title = DEFAULT_DOCUMENT_TITLE }
-    }
+    if (!('mediaSession' in navigator)) return
     const mediaSession = navigator.mediaSession
     const cover = api.coverUrl(current)
     const artwork = cover
@@ -197,12 +202,17 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         artwork,
       })
     }
-    return () => {
-      mediaSession.metadata = null
-      try { mediaSession.setPositionState() } catch { /* unsupported */ }
-      document.title = DEFAULT_DOCUMENT_TITLE
-    }
   }, [current])
+
+  // 切换 current 也会执行依赖 effect 的 cleanup，因此媒体会话只能在 Provider
+  // 真正卸载时清空。否则 macOS 会在两首歌之间短暂切到其他播放器。
+  useEffect(() => () => {
+    document.title = DEFAULT_DOCUMENT_TITLE
+    if (!('mediaSession' in navigator)) return
+    navigator.mediaSession.metadata = null
+    navigator.mediaSession.playbackState = 'none'
+    try { navigator.mediaSession.setPositionState() } catch { /* unsupported */ }
+  }, [])
 
   useEffect(() => {
     if (!('mediaSession' in navigator)) return
@@ -246,8 +256,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
     setHandler('play', () => a?.play().catch(() => setPlaying(false)))
     setHandler('pause', () => a?.pause())
-    setHandler('nexttrack', next)
-    setHandler('previoustrack', previousTrack)
+    setHandler('nexttrack', () => mediaTrackHandlersRef.current.next())
+    setHandler('previoustrack', () => mediaTrackHandlersRef.current.previousTrack())
     setHandler('seekbackward', (details) => seekBy(-(details.seekOffset || 10)))
     setHandler('seekforward', (details) => seekBy(details.seekOffset || 10))
     setHandler('seekto', (details) => {
@@ -274,7 +284,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         try { mediaSession.setActionHandler(action, null) } catch { /* unsupported */ }
       }
     }
-  }, [next, previousTrack])
+  }, [])
 
   return (
     <PlayerContext.Provider
