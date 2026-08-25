@@ -10,6 +10,7 @@ import type { Song } from '../types'
 import { PlayerContext, type PlaybackMode } from './playerContext'
 
 const PLAYBACK_MODE_KEY = 'mp_playback_mode'
+const DEFAULT_DOCUMENT_TITLE = 'MusicPlayer · B站收藏夹曲库'
 
 function initialPlaybackMode(): PlaybackMode {
   const saved = localStorage.getItem(PLAYBACK_MODE_KEY)
@@ -130,6 +131,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     start(queue[n], queue, n)
   }, [queue, index, playbackMode, randomIndex, start])
 
+  // 系统级“上一曲”必须确实切换歌曲；播放器 UI 的 prev 仍保留播放超过
+  // 3 秒时先回到本曲开头的常见交互。
+  const previousTrack = useCallback(() => {
+    if (!queue.length) return
+    const n = (index - 1 + queue.length) % queue.length
+    start(queue[n], queue, n)
+  }, [queue, index, start])
+
   const prev = useCallback(() => {
     const a = audioRef.current
     if (!queue.length) return
@@ -158,6 +167,114 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setPlaybackModeState(mode)
     localStorage.setItem(PLAYBACK_MODE_KEY, mode)
   }, [])
+
+  // 向 macOS 控制中心/媒体键和 iOS 锁屏提供歌曲信息与系统控制。
+  useEffect(() => {
+    if (!current) {
+      document.title = DEFAULT_DOCUMENT_TITLE
+      if ('mediaSession' in navigator) {
+        navigator.mediaSession.metadata = null
+        navigator.mediaSession.playbackState = 'none'
+        try { navigator.mediaSession.setPositionState() } catch { /* unsupported */ }
+      }
+      return
+    }
+
+    document.title = `${current.title} — ${current.artist}`
+    if (!('mediaSession' in navigator)) {
+      return () => { document.title = DEFAULT_DOCUMENT_TITLE }
+    }
+    const mediaSession = navigator.mediaSession
+    const cover = api.coverUrl(current)
+    const artwork = cover
+      ? [{ src: new URL(cover, window.location.href).href, sizes: '320x320', type: 'image/jpeg' }]
+      : []
+    if (typeof MediaMetadata !== 'undefined') {
+      mediaSession.metadata = new MediaMetadata({
+        title: current.title,
+        artist: current.artist,
+        album: current.album || 'MusicPlayer',
+        artwork,
+      })
+    }
+    return () => {
+      mediaSession.metadata = null
+      try { mediaSession.setPositionState() } catch { /* unsupported */ }
+      document.title = DEFAULT_DOCUMENT_TITLE
+    }
+  }, [current])
+
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return
+    navigator.mediaSession.playbackState = current
+      ? (playing ? 'playing' : 'paused')
+      : 'none'
+  }, [current, playing])
+
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return
+    const a = audioRef.current
+    if (!a || !current || !Number.isFinite(duration) || duration <= 0) return
+    try {
+      navigator.mediaSession.setPositionState({
+        duration,
+        playbackRate: a.playbackRate || 1,
+        position: Math.min(Math.max(time, 0), duration),
+      })
+    } catch {
+      // Safari 旧版本可能暴露 mediaSession 但尚未实现位置状态。
+    }
+  }, [current, duration, time])
+
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return
+    const mediaSession = navigator.mediaSession
+    const a = audioRef.current
+    const setHandler = (action: MediaSessionAction, handler: MediaSessionActionHandler) => {
+      try {
+        mediaSession.setActionHandler(action, handler)
+      } catch {
+        // WebKit/Chrome 版本支持的 action 集合不同，逐项失败不能影响其他按键。
+      }
+    }
+    const seekBy = (offset: number) => {
+      if (!a || !Number.isFinite(a.duration)) return
+      const target = Math.min(Math.max(a.currentTime + offset, 0), a.duration)
+      a.currentTime = target
+      setTime(target)
+    }
+
+    setHandler('play', () => a?.play().catch(() => setPlaying(false)))
+    setHandler('pause', () => a?.pause())
+    setHandler('nexttrack', next)
+    setHandler('previoustrack', previousTrack)
+    setHandler('seekbackward', (details) => seekBy(-(details.seekOffset || 10)))
+    setHandler('seekforward', (details) => seekBy(details.seekOffset || 10))
+    setHandler('seekto', (details) => {
+      if (!a || details.seekTime == null) return
+      const target = Number.isFinite(a.duration)
+        ? Math.min(Math.max(details.seekTime, 0), a.duration)
+        : Math.max(details.seekTime, 0)
+      if (details.fastSeek && typeof a.fastSeek === 'function') a.fastSeek(target)
+      else a.currentTime = target
+      setTime(target)
+    })
+    setHandler('stop', () => {
+      if (!a) return
+      a.pause()
+      a.currentTime = 0
+      setTime(0)
+    })
+
+    return () => {
+      for (const action of [
+        'play', 'pause', 'nexttrack', 'previoustrack',
+        'seekbackward', 'seekforward', 'seekto', 'stop',
+      ] as MediaSessionAction[]) {
+        try { mediaSession.setActionHandler(action, null) } catch { /* unsupported */ }
+      }
+    }
+  }, [next, previousTrack])
 
   return (
     <PlayerContext.Provider

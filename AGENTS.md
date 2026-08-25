@@ -106,6 +106,7 @@ API Token：`d0689adf8786539510fc906531076ac7`（服务器 deploy/.env 内）。
 - 2026-08-24 网页鉴权使用一次性图片验证码 + HttpOnly 签名 Cookie，API_TOKEN 仅保留脚本兼容；真实 IP 只在直连对端为内网/回环代理时信任 X-Forwarded-For。只审计成功会话，last_seen 每会话最多每分钟落库一次；IP 属地必须缓存且外部查询失败不能阻断登录
 - 2026-08-24 Compose 默认不会自动读取 `deploy/.env`，且 `environment` 的显式空值/默认值优先于 `env_file`；部署变量统一由可选 `env_file: deploy/.env` 注入，compose 仅显式保留容器内固定的 DATA_DIR。上线必须用 `/api/auth/status` 和未认证 401 验证配置确实进入容器，不能只看构建成功
 - 2026-08-24 香港机房访问 ipwho.is 的 TLS/响应偶尔超过 2.5 秒，过短超时会让所有新 IP 属地静默为空；新 IP 首次成功登录允许 5 秒超时，成功后按 IP 缓存到 SQLite，失败仍不得阻断登录
+- 2026-08-25 macOS 媒体键与 iOS 锁屏控制必须走 Media Session API，不能监听普通键盘事件；metadata 同步歌名/歌手/专辑/绝对封面 URL，playbackState/positionState 同步实际 Audio。WebKit 对 action 支持不一致，setActionHandler 必须逐项 try/catch；系统 previoustrack 应直接切歌，不能复用“播放超过 3 秒先回到开头”的 UI prev
 
 ## 维护规则
 
