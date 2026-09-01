@@ -108,7 +108,7 @@ API Token：`d0689adf8786539510fc906531076ac7`（服务器 deploy/.env 内）。
 - 2026-08-24 香港机房访问 ipwho.is 的 TLS/响应偶尔超过 2.5 秒，过短超时会让所有新 IP 属地静默为空；新 IP 首次成功登录允许 5 秒超时，成功后按 IP 缓存到 SQLite，失败仍不得阻断登录
 - 2026-08-25 macOS 媒体键与 iOS 锁屏控制必须走 Media Session API，不能监听普通键盘事件；metadata 同步歌名/歌手/专辑/绝对封面 URL，playbackState/positionState 同步实际 Audio。WebKit 对 action 支持不一致，setActionHandler 必须逐项 try/catch；系统 previoustrack 应直接切歌，不能复用“播放超过 3 秒先回到开头”的 UI prev
 - 2026-08-25 Media Session 的 metadata effect cleanup 会在每次切歌时执行，不只是组件卸载；若此时清空 metadata 并撤销 action handler，macOS 会在空档把“正在播放”切到网易云等其他播放器。曲目切换只覆盖元数据，action handler 只注册一次并用 ref 获取最新队列，仅在 PlayerProvider 真正卸载时统一清理
-- 2026-09-01 重复导入遇到 B 站详情风控时，空 cid 覆盖既有 cid，再叠加旧任务把 ready 状态污染成 pending/error，会让已有文件被误判为分P变化并全量重下。去重必须以实际 file_path 文件存在为最终事实；当前 cid 未知时保留既有分P并视为未变化，修复脏状态为 ready。收藏夹列表的 ugc.first_cid 可作为 view API 412 时的直连依据，已知 cid 时详情请求只能补元数据、不可阻断 playurl
+- 2026-09-01 重复导入遇到 B 站详情风控时，空 cid 覆盖既有 cid，再叠加旧任务把 ready 状态污染成 pending/error，会让已有文件被误判为分P变化并全量重下。去重必须以实际 file_path 文件存在为最终事实；当前 cid 未知时保留既有分P并视为未变化，修复脏状态为 ready，服务启动时也需扫描 file_path 自动修复历史脏状态。收藏夹列表的 ugc.first_cid 可作为 view API 412 时的直连依据，已知 cid 时详情请求只能补元数据、不可阻断 playurl
 - 2026-09-01 收藏夹归属不能复用 songs.job_id（重复导入会重新归属且一首歌无法属于多个收藏夹）；新增 collections/collection_songs/job_songs 多对多关系。日更以 last_checked_at 满 24 小时为准，只 enrich 新增或缺 cid 且未下载的条目，只把本次新成员交给共享下载队列；取消保存仅删关系，不删歌曲文件
 - 2026-09-01 重复导入预览不能继续默认全选，否则虽然后端会跳过，界面仍会让用户误以为要全量下载；有 file_path 的歌曲默认取消勾选并标注“已有音频”，0 首新增时提供直接返回曲库。收藏夹筛选与歌单/歌手/关键词共同作用于同一 filtered 播放队列，390px 下筛选器必须换行且无横向溢出
 

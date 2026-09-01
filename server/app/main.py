@@ -20,7 +20,7 @@ from .db import (access_audit, add_access_session, add_song_to_playlist,
                  delete_collection, delete_song, get_collection, get_conn,
                  get_job, get_playlist, get_song, list_collection_songs,
                  list_collections, list_jobs, list_playlist_songs, list_playlists, list_songs,
-                 now, recover_interrupted_downloads, remove_song_from_playlist,
+                 now, reconcile_downloaded_files, recover_interrupted_downloads, remove_song_from_playlist,
                  rename_playlist, touch_access_session, update_collection, update_song)
 from . import auth as auth_service, downloader, lyrics
 from .importer import (ImportError, is_job_active, is_song_active,
@@ -35,9 +35,14 @@ async def lifespan(_app: FastAPI):
     conn = get_conn()
     try:
         recovered_songs, recovered_jobs = recover_interrupted_downloads(conn)
+        repaired_files = reconcile_downloaded_files(conn)
         if recovered_songs or recovered_jobs:
             logging.getLogger("uvicorn.error").warning(
                 "已恢复中断状态：songs=%d jobs=%d", recovered_songs, recovered_jobs
+            )
+        if repaired_files:
+            logging.getLogger("uvicorn.error").warning(
+                "已按实际音频文件修复歌曲状态：songs=%d", repaired_files
             )
     finally:
         conn.close()

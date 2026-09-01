@@ -36,6 +36,13 @@ class DatabaseConnectionTests(unittest.TestCase):
                     }
                     self.assertIn("playlists", tables)
                     self.assertIn("access_sessions", tables)
+                    self.assertIn("collections", tables)
+                    self.assertIn("collection_songs", tables)
+                    self.assertIn("job_songs", tables)
+                    job_columns = {
+                        row[1] for row in second.execute("PRAGMA table_info(jobs)").fetchall()
+                    }
+                    self.assertIn("collection_id", job_columns)
                 finally:
                     first.close()
                     second.close()

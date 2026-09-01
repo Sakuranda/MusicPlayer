@@ -193,6 +193,25 @@ def recover_interrupted_downloads(conn: sqlite3.Connection) -> tuple[int, int]:
     return song_cur.rowcount, job_cur.rowcount
 
 
+def reconcile_downloaded_files(conn: sqlite3.Connection) -> int:
+    """以磁盘文件为准修复旧任务留下的 pending/error 状态。"""
+    repaired = 0
+    rows = conn.execute(
+        "SELECT id, file_path, status, error FROM songs WHERE file_path IS NOT NULL"
+    ).fetchall()
+    for row in rows:
+        if (MUSIC_DIR / row["file_path"]).is_file() and (
+            row["status"] != "ready" or row["error"] is not None
+        ):
+            conn.execute(
+                "UPDATE songs SET status='ready', error=NULL WHERE id = ?", (row["id"],)
+            )
+            repaired += 1
+    if repaired:
+        conn.commit()
+    return repaired
+
+
 def now() -> str:
     return datetime.now(timezone.utc).isoformat()
 

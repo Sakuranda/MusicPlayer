@@ -1,9 +1,10 @@
 import sqlite3
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from app import main
-from app.db import SCHEMA, insert_song, recover_interrupted_downloads
+from app.db import (SCHEMA, insert_song, reconcile_downloaded_files,
+                    recover_interrupted_downloads)
 
 
 def song_data(**overrides):
@@ -107,6 +108,23 @@ class DataSafetyTests(unittest.TestCase):
         self.assertEqual(recovered, (1, 1))
         self.assertEqual(self.conn.execute("SELECT status FROM songs").fetchone()[0], "error")
         self.assertEqual(self.conn.execute("SELECT status FROM jobs").fetchone()[0], "error")
+
+    def test_startup_repairs_stale_status_when_audio_exists(self):
+        sid = insert_song(self.conn, song_data())
+        self.conn.execute(
+            "UPDATE songs SET file_path='专辑/歌.m4a', status='error', error='HTTP 412' WHERE id=?",
+            (sid,),
+        )
+        self.conn.commit()
+        with patch("app.db.MUSIC_DIR") as music_dir:
+            path = MagicMock()
+            path.is_file.return_value = True
+            music_dir.__truediv__.return_value = path
+            repaired = reconcile_downloaded_files(self.conn)
+
+        self.assertEqual(repaired, 1)
+        row = self.conn.execute("SELECT status, error FROM songs WHERE id=?", (sid,)).fetchone()
+        self.assertEqual(tuple(row), ("ready", None))
 
 
 if __name__ == "__main__":
