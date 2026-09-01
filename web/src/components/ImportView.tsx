@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import {
   AlertTriangle,
   ArrowLeft,
+  Bookmark,
+  CalendarClock,
   Check,
   ChevronDown,
   Download,
@@ -10,12 +12,13 @@ import {
   ListCollapse,
   Loader2,
   Play,
+  RefreshCw,
   Rows3,
   Trash2,
 } from 'lucide-react'
 import { api } from '../lib/api'
 import { fmtTime } from '../lib/lrc'
-import type { JobDetail, Song } from '../types'
+import type { JobDetail, SavedCollection, Song } from '../types'
 
 interface Props {
   onImported: () => void
@@ -35,12 +38,17 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
   const [cookie, setCookie] = useState(() => localStorage.getItem(LS_COOKIE) || '')
   const [album, setAlbum] = useState('')
   const [autoLyrics, setAutoLyrics] = useState(true)
+  const [saveCollection, setSaveCollection] = useState(true)
+  const [autoUpdate, setAutoUpdate] = useState(false)
   const [density, setDensityState] = useState<Density>(() =>
     localStorage.getItem(LS_DENSITY) === 'comfortable' ? 'comfortable' : 'compact',
   )
   const [showCookie, setShowCookie] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [collections, setCollections] = useState<SavedCollection[]>([])
+  const [collectionBusy, setCollectionBusy] = useState<number | null>(null)
+  const [collectionMessage, setCollectionMessage] = useState('')
 
   const [detail, setDetail] = useState<JobDetail | null>(null)
   const [edits, setEdits] = useState<
@@ -49,6 +57,10 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [starting, setStarting] = useState(false)
   const timerRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    api.collections().then(setCollections).catch(() => setCollections([]))
+  }, [])
 
   useEffect(() => {
     return () => {
@@ -74,15 +86,68 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
     setLoading(true)
     try {
       if (cookie.trim()) localStorage.setItem(LS_COOKIE, cookie.trim())
-      const d = await api.createJob(url.trim(), cookie.trim(), album.trim())
+      const d = await api.createJob(
+        url.trim(), cookie.trim(), album.trim(), saveCollection, autoUpdate,
+      )
       setDetail(d)
-      setSelected(new Set(d.songs.map((s) => s.id)))
+      // 已有实体音频默认不勾选；服务端仍会再次做文件级去重，双重防止重下。
+      setSelected(new Set(d.songs.filter((song) => !song.file_path).map((song) => song.id)))
       setEdits({})
       setStep('preview')
+      api.collections().then(setCollections).catch(() => {})
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
       setLoading(false)
+    }
+  }
+
+  const refreshSavedCollection = async (collection: SavedCollection) => {
+    setCollectionBusy(collection.id)
+    setCollectionMessage('')
+    setError('')
+    try {
+      const result = await api.refreshCollection(collection.id)
+      setCollectionMessage(
+        result.queued > 0
+          ? `「${collection.title}」新增 ${result.queued} 首，已自动加入下载队列`
+          : `「${collection.title}」已是最新，没有新增歌曲`,
+      )
+      setCollections(await api.collections())
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setCollectionBusy(null)
+    }
+  }
+
+  const toggleCollectionAutoUpdate = async (collection: SavedCollection) => {
+    setCollectionBusy(collection.id)
+    setError('')
+    try {
+      const updated = await api.updateCollection(collection.id, {
+        auto_update: !collection.auto_update,
+      })
+      setCollections((items) => items.map((item) => item.id === updated.id ? updated : item))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setCollectionBusy(null)
+    }
+  }
+
+  const removeSavedCollection = async (collection: SavedCollection) => {
+    if (!window.confirm(`不再保存「${collection.title}」？曲库中的歌曲和音频都会保留。`)) return
+    setCollectionBusy(collection.id)
+    setError('')
+    try {
+      await api.deleteCollection(collection.id)
+      setCollections((items) => items.filter((item) => item.id !== collection.id))
+      setCollectionMessage(`已移除「${collection.title}」的保存记录，歌曲仍保留在曲库`)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setCollectionBusy(null)
     }
   }
 
@@ -202,6 +267,85 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
             自动解析收藏夹内所有视频的歌曲名与歌手（虚拟主播翻唱优化），并匹配歌词、下载音频
           </p>
 
+          {collections.length > 0 && (
+            <section className="mb-5 rounded-2xl border border-line bg-panel p-4 sm:p-5" aria-labelledby="saved-collections-title">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <h2 id="saved-collections-title" className="flex items-center gap-2 text-sm font-medium">
+                    <Bookmark size={15} className="text-accent" /> 已保存收藏夹
+                  </h2>
+                  <p className="mt-1 text-[11px] text-faint">手动检查或开启每日自动更新，只下载新增歌曲</p>
+                </div>
+                <span className="rounded-full bg-accent-dim px-2 py-1 text-[10px] text-accent">
+                  {collections.length} 个链接
+                </span>
+              </div>
+              <div className="space-y-2">
+                {collections.map((collection) => (
+                  <div key={collection.id} className="flex flex-col gap-3 rounded-xl border border-line bg-bg2 px-3.5 py-3 sm:flex-row sm:items-center">
+                    <button
+                      type="button"
+                      onClick={() => { setUrl(collection.url); setAlbum(collection.album || '') }}
+                      className="min-w-0 flex-1 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+                      title="将这个链接填入下方"
+                    >
+                      <div className="truncate text-sm font-medium">{collection.title}</div>
+                      <div className="mt-0.5 text-[10px] text-faint">
+                        {collection.downloaded_count || 0}/{collection.song_count} 首已下载
+                        {collection.last_checked_at
+                          ? ` · 上次检查 ${new Date(collection.last_checked_at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`
+                          : ' · 尚未检查'}
+                      </div>
+                      {collection.last_error && (
+                        <div className="mt-1 truncate text-[10px] text-danger" title={collection.last_error}>{collection.last_error}</div>
+                      )}
+                    </button>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <span className="flex items-center gap-1 text-[10px] text-muted">
+                        <CalendarClock size={12} /> 每日
+                      </span>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={collection.auto_update}
+                        aria-label={`${collection.title} 每日自动更新`}
+                        disabled={collectionBusy === collection.id}
+                        onClick={() => void toggleCollectionAutoUpdate(collection)}
+                        className={`relative h-5 w-9 rounded-full transition-colors disabled:opacity-50 ${collection.auto_update ? 'bg-accent' : 'bg-panel2 border border-line'}`}
+                      >
+                        <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${collection.auto_update ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={collectionBusy === collection.id}
+                        onClick={() => void refreshSavedCollection(collection)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-panel px-2.5 py-1.5 text-[11px] text-muted hover:border-accent/50 hover:text-ink disabled:opacity-50"
+                      >
+                        <RefreshCw size={12} className={collectionBusy === collection.id ? 'spin' : ''} />
+                        手动更新
+                      </button>
+                      <button
+                        type="button"
+                        disabled={collectionBusy === collection.id}
+                        onClick={() => void removeSavedCollection(collection)}
+                        className="rounded-lg p-1.5 text-faint hover:bg-danger/10 hover:text-danger disabled:opacity-50"
+                        title="取消保存（不删除歌曲）"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {collectionMessage && (
+            <div className="mb-4 flex items-center gap-2 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-500">
+              <Check size={14} /> {collectionMessage}
+            </div>
+          )}
+
           <div className="bg-panel border border-line rounded-2xl p-6">
             <label className="block text-sm font-medium mb-2">收藏夹链接</label>
             <div className="relative">
@@ -226,6 +370,37 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
                 placeholder="留空则使用收藏夹标题"
                 className="w-full bg-bg2 border border-line rounded-xl px-3 py-3 text-sm placeholder:text-faint focus:outline-none focus:border-accent/60 transition-colors"
               />
+            </div>
+
+            <div className="mt-5 grid gap-2 sm:grid-cols-2">
+              <label className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3.5 transition-colors ${saveCollection ? 'border-accent/40 bg-accent-dim' : 'border-line bg-bg2'}`}>
+                <input
+                  type="checkbox"
+                  checked={saveCollection}
+                  onChange={(event) => {
+                    setSaveCollection(event.target.checked)
+                    if (!event.target.checked) setAutoUpdate(false)
+                  }}
+                  className="mt-0.5 h-4 w-4 accent-[#d97757]"
+                />
+                <span>
+                  <span className="block text-xs font-medium">保存这个收藏夹</span>
+                  <span className="mt-1 block text-[10px] leading-relaxed text-faint">以后可直接手动检查，并在曲库按收藏夹筛选</span>
+                </span>
+              </label>
+              <label className={`flex items-start gap-3 rounded-xl border p-3.5 transition-colors ${saveCollection ? 'cursor-pointer' : 'cursor-not-allowed opacity-45'} ${autoUpdate ? 'border-accent/40 bg-accent-dim' : 'border-line bg-bg2'}`}>
+                <input
+                  type="checkbox"
+                  checked={autoUpdate}
+                  disabled={!saveCollection}
+                  onChange={(event) => setAutoUpdate(event.target.checked)}
+                  className="mt-0.5 h-4 w-4 accent-[#d97757]"
+                />
+                <span>
+                  <span className="block text-xs font-medium">每天自动更新</span>
+                  <span className="mt-1 block text-[10px] leading-relaxed text-faint">每 24 小时检查一次，只自动下载新增歌曲</span>
+                </span>
+              </label>
             </div>
 
             <div className="mt-4">
@@ -290,7 +465,7 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
             <div>
               <h1 className="text-2xl font-semibold tracking-tight">确认歌曲信息</h1>
               <p className="text-sm text-muted mt-1">
-                收藏夹「{detail.job.title}」· {songs.length} 首 · 解析可能有误，可直接修改
+                收藏夹「{detail.job.title}」· {songs.length} 首 · 已有音频默认不勾选，只下载新增歌曲
               </p>
             </div>
             <button
@@ -404,6 +579,7 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
                       <div className="col-span-2 flex items-center gap-2 min-w-0 pl-1 text-[10px] text-faint">
                         <span className="truncate flex-1">
                           {song.raw_title}{song.uploader ? ` · ${song.uploader}` : ''}
+                          {song.file_path ? ' · 已有音频' : ''}
                         </span>
                         {(song.parts?.length ?? 0) > 1 ? (
                           <select
@@ -475,14 +651,23 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
           )}
 
           <div className="flex items-center gap-3 mt-6">
-            <button
-              onClick={start}
-              disabled={starting || selected.size === 0}
-              className="flex items-center gap-2 px-5 py-3 rounded-xl bg-accent hover:bg-accent-soft text-white text-sm font-medium transition-colors disabled:opacity-40"
-            >
-              {starting ? <Loader2 size={16} className="spin" /> : <Download size={16} />}
-              下载选中的 {selected.size} 首
-            </button>
+            {selected.size > 0 ? (
+              <button
+                onClick={start}
+                disabled={starting}
+                className="flex items-center gap-2 px-5 py-3 rounded-xl bg-accent hover:bg-accent-soft text-white text-sm font-medium transition-colors disabled:opacity-40"
+              >
+                {starting ? <Loader2 size={16} className="spin" /> : <Download size={16} />}
+                下载选中的 {selected.size} 首
+              </button>
+            ) : (
+              <button
+                onClick={onImported}
+                className="flex items-center gap-2 px-5 py-3 rounded-xl bg-accent hover:bg-accent-soft text-white text-sm font-medium transition-colors"
+              >
+                <Check size={16} /> 没有新增歌曲，返回曲库
+              </button>
+            )}
             <span className="text-[11px] text-faint">
               {autoLyrics ? '会依次查询歌词源' : '已关闭歌词查询，可稍后手动上传'}
             </span>

@@ -21,7 +21,7 @@ import {
 import { api } from '../lib/api'
 import { usePlayer } from '../hooks/playerContext'
 import { fmtTime } from '../lib/lrc'
-import type { Playlist, Song } from '../types'
+import type { Playlist, SavedCollection, Song } from '../types'
 
 interface Props {
   songs: Song[]
@@ -529,8 +529,11 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
   const [deleting, setDeleting] = useState<Song | null>(null)
   const [playlistTarget, setPlaylistTarget] = useState<Song | null>(null)
   const [playlists, setPlaylists] = useState<Playlist[]>([])
+  const [collections, setCollections] = useState<SavedCollection[]>([])
   const [selectedPlaylist, setSelectedPlaylist] = useState<number | 'all'>('all')
   const [playlistSongIds, setPlaylistSongIds] = useState<Set<number>>(new Set())
+  const [selectedCollection, setSelectedCollection] = useState<number | 'all'>('all')
+  const [collectionSongIds, setCollectionSongIds] = useState<Set<number>>(new Set())
   const [artist, setArtist] = useState('all')
   const [managingPlaylists, setManagingPlaylists] = useState(false)
   const [localSongs, setLocalSongs] = useState(songs)
@@ -556,7 +559,15 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
   }
 
   useEffect(() => {
-    api.playlists().then(setPlaylists).catch(() => setPlaylists([]))
+    Promise.all([api.playlists(), api.collections()])
+      .then(([nextPlaylists, nextCollections]) => {
+        setPlaylists(nextPlaylists)
+        setCollections(nextCollections)
+      })
+      .catch(() => {
+        setPlaylists([])
+        setCollections([])
+      })
   }, [])
 
   useEffect(() => {
@@ -572,11 +583,30 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
     return () => { alive = false }
   }, [selectedPlaylist])
 
+  useEffect(() => {
+    setArtist('all')
+    if (selectedCollection === 'all') {
+      setCollectionSongIds(new Set())
+      return
+    }
+    let alive = true
+    api.collectionSongs(selectedCollection)
+      .then((items) => { if (alive) setCollectionSongIds(new Set(items.map((song) => song.id))) })
+      .catch(() => { if (alive) setCollectionSongIds(new Set()) })
+    return () => { alive = false }
+  }, [selectedCollection])
+
   const ready = useMemo(() => localSongs.filter((s) => s.status === 'ready'), [localSongs])
   const others = useMemo(() => localSongs.filter((s) => s.status !== 'ready'), [localSongs])
+  const collectionReady = useMemo(
+    () => selectedCollection === 'all' ? ready : ready.filter((song) => collectionSongIds.has(song.id)),
+    [collectionSongIds, ready, selectedCollection],
+  )
   const playlistReady = useMemo(
-    () => selectedPlaylist === 'all' ? ready : ready.filter((song) => playlistSongIds.has(song.id)),
-    [playlistSongIds, ready, selectedPlaylist],
+    () => selectedPlaylist === 'all'
+      ? collectionReady
+      : collectionReady.filter((song) => playlistSongIds.has(song.id)),
+    [collectionReady, playlistSongIds, selectedPlaylist],
   )
   const artists = useMemo(
     () => Array.from(new Set(playlistReady.map((song) => song.artist).filter(Boolean)))
@@ -598,10 +628,15 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
   }, [artist, playlistReady, query])
 
   const refreshPlaylistContext = async () => {
-    const next = await refreshPlaylists()
+    const [next, nextCollections] = await Promise.all([refreshPlaylists(), api.collections()])
+    setCollections(nextCollections)
     if (selectedPlaylist !== 'all' && next.some((playlist) => playlist.id === selectedPlaylist)) {
       const items = await api.playlistSongs(selectedPlaylist)
       setPlaylistSongIds(new Set(items.map((song) => song.id)))
+    }
+    if (selectedCollection !== 'all' && nextCollections.some((item) => item.id === selectedCollection)) {
+      const items = await api.collectionSongs(selectedCollection)
+      setCollectionSongIds(new Set(items.map((song) => song.id)))
     }
   }
 
@@ -630,7 +665,9 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
         <div>
           <h1 className="text-3xl font-semibold tracking-tight mb-1.5">曲库</h1>
           <p className="text-sm text-muted">
-            {selectedPlaylist === 'all' ? `${ready.length} 首歌曲` : `${filtered.length} 首筛选结果`}
+            {selectedPlaylist === 'all' && selectedCollection === 'all'
+              ? `${ready.length} 首歌曲`
+              : `${filtered.length} 首筛选结果`}
             {others.length > 0 ? ` · ${others.length} 首处理中/失败` : ''}
           </p>
         </div>
@@ -679,6 +716,19 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
             <select
+              value={selectedCollection}
+              onChange={(e) => setSelectedCollection(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+              aria-label="按收藏夹筛选"
+              className="min-w-0 max-w-44 rounded-xl border border-line bg-panel px-3 py-2 text-sm focus:border-accent/50 focus:outline-none"
+            >
+              <option value="all">全部收藏夹</option>
+              {collections.map((collection) => (
+                <option key={collection.id} value={collection.id}>
+                  {collection.title} · {collection.song_count}
+                </option>
+              ))}
+            </select>
+            <select
               value={selectedPlaylist}
               onChange={(e) => setSelectedPlaylist(e.target.value === 'all' ? 'all' : Number(e.target.value))}
               aria-label="选择歌单"
@@ -713,7 +763,10 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
               <FolderPlus size={15} />
             </button>
             <button
-              onClick={onRefresh}
+              onClick={() => {
+                void refreshPlaylistContext()
+                onRefresh()
+              }}
               title="刷新"
               className="p-2.5 rounded-xl bg-panel border border-line text-muted hover:text-ink transition-colors"
             >

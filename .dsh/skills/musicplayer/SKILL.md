@@ -91,6 +91,7 @@ c.commit()"'
 - React effect cleanup 会在依赖变化时执行，不等于组件卸载；Media Session 切歌时不可清空 metadata 或反复撤销 action handler，否则 macOS 会短暂把媒体焦点交给网易云等其他播放器。元数据直接覆盖，handler 注册一次并通过 ref 调用最新队列逻辑，仅在 PlayerProvider 真正卸载时清理
 - 重复导入时不能只看 songs.status 去重：旧任务/重启/风控会把已有音频标成 pending/error。以 file_path 对应文件真实存在为完成依据；详情 API 失败产生的空 cid 不得覆盖已下载 cid，也不得视为分P变化。优先使用收藏夹 ugc.first_cid，已知 cid 时 view API 412 不应阻断 playurl 直连
 - 收藏夹订阅与任务成员必须使用 collection_songs/job_songs 多对多表，不能反复覆盖 songs.job_id。自动更新每个收藏夹至少间隔 24 小时，只请求新增或缺 cid 且无文件的详情，只下载本次新增成员；删除订阅仅删关系，绝不删除共享歌曲和音频
+- 重复导入预览中已有 file_path 的歌曲默认不勾选并明确标记，0 首新增时直接返回曲库；收藏夹、歌单、歌手、关键词筛选必须合并成同一播放队列。新增筛选控件需在 390px 实测无横向溢出
 
 ## 验证清单（每次改动后）
 

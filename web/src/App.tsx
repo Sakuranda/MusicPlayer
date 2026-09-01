@@ -80,7 +80,10 @@ export default function App() {
                 setRefreshKey((k) => k + 1)
                 setView('library')
               }}
-              onViewLibrary={() => setView('library')}
+              onViewLibrary={() => {
+                setRefreshKey((key) => key + 1)
+                setView('library')
+              }}
             />
           )}
           {view === 'settings' && (

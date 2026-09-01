@@ -1,4 +1,14 @@
-import type { AccessAudit, AuthStatus, CaptchaChallenge, Job, JobDetail, Playlist, Song } from '../types'
+import type {
+  AccessAudit,
+  AuthStatus,
+  CaptchaChallenge,
+  CollectionRefreshResult,
+  Job,
+  JobDetail,
+  Playlist,
+  SavedCollection,
+  Song,
+} from '../types'
 
 const LS_BASE = 'mp_api_base'
 const LS_TOKEN = 'mp_api_token'
@@ -68,10 +78,22 @@ export const api = {
   logout: () => req<{ logged_out: boolean }>('/api/auth/logout', { method: 'POST' }),
   accessAudit: () => req<AccessAudit>('/api/auth/access-audit'),
 
-  createJob: (url: string, cookie?: string, album?: string) =>
+  createJob: (
+    url: string,
+    cookie?: string,
+    album?: string,
+    saveCollection = false,
+    autoUpdate = false,
+  ) =>
     req<JobDetail>('/api/jobs', {
       method: 'POST',
-      body: JSON.stringify({ url, cookie: cookie || undefined, album: album || undefined }),
+      body: JSON.stringify({
+        url,
+        cookie: cookie || undefined,
+        album: album || undefined,
+        save_collection: saveCollection,
+        auto_update: autoUpdate && saveCollection,
+      }),
     }),
   getJob: (id: string) => req<JobDetail>(`/api/jobs/${id}`),
   listJobs: () => req<Job[]>('/api/jobs'),
@@ -81,6 +103,18 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ bvids, fetch_lyrics: fetchLyrics }),
     }),
+
+  collections: () => req<SavedCollection[]>('/api/collections'),
+  collectionSongs: (id: number) => req<Song[]>(`/api/collections/${id}/songs`),
+  updateCollection: (id: number, patch: { auto_update?: boolean; fetch_lyrics?: boolean }) =>
+    req<SavedCollection>(`/api/collections/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  refreshCollection: (id: number) =>
+    req<CollectionRefreshResult>(`/api/collections/${id}/refresh`, { method: 'POST' }),
+  deleteCollection: (id: number) =>
+    req<{ deleted: boolean; songs_preserved: boolean }>(`/api/collections/${id}`, { method: 'DELETE' }),
 
   songs: () => req<Song[]>('/api/songs'),
   song: (id: number) => req<Song>(`/api/songs/${id}`),

@@ -44,6 +44,7 @@ export interface Job {
   done: number
   failed: number
   message: string | null
+  collection_id: number | null
   created_at: string
 }
 
@@ -57,6 +58,31 @@ export interface Playlist {
   name: string
   song_count: number
   created_at: string
+}
+
+export interface SavedCollection {
+  id: number
+  media_id: string
+  url: string
+  title: string
+  album: string | null
+  auto_update: boolean
+  fetch_lyrics: boolean
+  song_count: number
+  downloaded_count: number
+  last_checked_at: string | null
+  last_updated_at: string | null
+  last_error: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CollectionRefreshResult {
+  job_id: string
+  started: boolean
+  queued: number
+  concurrency: number
+  message: string
 }
 
 export interface AuthStatus {
