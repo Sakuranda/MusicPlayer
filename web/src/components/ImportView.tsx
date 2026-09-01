@@ -422,7 +422,7 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
                   />
                   <div className="flex items-center justify-between mt-1.5">
                     <span className="text-[11px] text-faint">
-                      只保存在本浏览器，仅发送给你的服务器和 B 站；Cookie 过期后重新粘贴即可
+                      保存在当前浏览器和你的私人服务器，仅用于访问 B 站；私密收藏夹自动更新需要它
                     </span>
                     {cookie && (
                       <button

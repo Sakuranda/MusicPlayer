@@ -111,6 +111,7 @@ API Token：`d0689adf8786539510fc906531076ac7`（服务器 deploy/.env 内）。
 - 2026-09-01 重复导入遇到 B 站详情风控时，空 cid 覆盖既有 cid，再叠加旧任务把 ready 状态污染成 pending/error，会让已有文件被误判为分P变化并全量重下。去重必须以实际 file_path 文件存在为最终事实；当前 cid 未知时保留既有分P并视为未变化，修复脏状态为 ready，服务启动时也需扫描 file_path 自动修复历史脏状态。收藏夹列表的 ugc.first_cid 可作为 view API 412 时的直连依据，已知 cid 时详情请求只能补元数据、不可阻断 playurl
 - 2026-09-01 收藏夹归属不能复用 songs.job_id（重复导入会重新归属且一首歌无法属于多个收藏夹）；新增 collections/collection_songs/job_songs 多对多关系。日更以 last_checked_at 满 24 小时为准，只 enrich 新增或缺 cid 且未下载的条目，只把本次新成员交给共享下载队列；取消保存仅删关系，不删歌曲文件
 - 2026-09-01 重复导入预览不能继续默认全选，否则虽然后端会跳过，界面仍会让用户误以为要全量下载；有 file_path 的歌曲默认取消勾选并标注“已有音频”，0 首新增时提供直接返回曲库。收藏夹筛选与歌单/歌手/关键词共同作用于同一 filtered 播放队列，390px 下筛选器必须换行且无横向溢出
+- 2026-09-01 私密收藏夹的服务端日更不能只依赖浏览器 localStorage；Cookie 必须持久化到 data/cookies/{media_id}.txt，界面需准确告知浏览器与私人服务器都会保存，并将 Netscape Cookie 文件权限收紧为 0600
 
 ## 维护规则
 

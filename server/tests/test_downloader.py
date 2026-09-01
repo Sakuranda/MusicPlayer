@@ -27,6 +27,16 @@ class CoverOptimizationTests(unittest.TestCase):
         self.assertIsNone(optimize_cover(b"not-an-image"))
 
 
+class CookieFileTests(unittest.TestCase):
+    def test_cookie_file_is_owner_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "cookie.txt"
+            downloader.write_cookie_file("SESSDATA=secret; bili_jct=csrf", path)
+
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            self.assertIn("SESSDATA\tsecret", path.read_text())
+
+
 class MetadataTests(unittest.TestCase):
     def test_empty_tag_container_is_created_and_album_can_be_removed(self):
         class FakeAudio:

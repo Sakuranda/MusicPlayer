@@ -35,6 +35,8 @@ def write_cookie_file(cookie_str: str, path: Path) -> Path:
         k, _, v = pair.partition("=")
         lines.append(f".bilibili.com\tTRUE\t/\tFALSE\t0\t{k.strip()}\t{v.strip()}")
     path.write_text("\n".join(lines) + "\n")
+    # 私密收藏夹自动更新依赖服务端持久化 Cookie；文件只允许容器用户读取。
+    path.chmod(0o600)
     return path
 
 
