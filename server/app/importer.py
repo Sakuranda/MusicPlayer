@@ -5,12 +5,15 @@ import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from . import bilibili, downloader, lyrics, parser
 from .config import COOKIE_DIR, DOWNLOAD_THREADS, METADATA_THREADS, MUSIC_DIR
-from .db import (create_job, get_conn, get_job, insert_song, list_songs,
-                 update_job, update_song)
+from .db import (add_job_song, create_job, get_collection, get_conn, get_job,
+                 get_song_by_bvid, insert_song, list_collections, list_job_songs,
+                 list_songs, now, replace_collection_songs, update_collection,
+                 update_job, update_song, upsert_collection)
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -28,6 +31,9 @@ _download_executor = ThreadPoolExecutor(
 _active_lock = threading.Lock()
 _active_jobs: set[str] = set()
 _active_song_ids: set[int] = set()
+_active_collection_ids: set[int] = set()
+_scheduler_stop = threading.Event()
+_scheduler_thread: threading.Thread | None = None
 
 
 def _cookie_file(media_id: str, cookie: str | None) -> Path | None:
@@ -39,7 +45,10 @@ def _cookie_file(media_id: str, cookie: str | None) -> Path | None:
     return path
 
 
-def parse_and_store(url: str, cookie: str | None = None, album: str | None = None) -> str:
+def parse_and_store(url: str, cookie: str | None = None, album: str | None = None,
+                    save_collection: bool = False, auto_update: bool = False,
+                    collection_id: int | None = None,
+                    fetch_lyrics: bool = True) -> str:
     """拉取收藏夹 → 解析标题 → 入库（status=pending），返回 job_id。"""
     conn = get_conn()
     media_ids = bilibili.parse_fav_url(url)
@@ -48,8 +57,34 @@ def parse_and_store(url: str, cookie: str | None = None, album: str | None = Non
     if not items:
         raise ImportError("收藏夹是空的")
 
-    job_id = uuid.uuid4().hex[:12]
     album = album or fav_title
+
+    collection = None
+    if save_collection or collection_id is not None:
+        expected = get_collection(conn, collection_id) if collection_id is not None else None
+        if collection_id is not None and (not expected or expected["media_id"] != media_id):
+            raise ImportError("收藏夹链接与已保存记录不匹配")
+        collection = upsert_collection(
+            conn,
+            media_id=media_id,
+            url=url,
+            title=fav_title,
+            album=album,
+            auto_update=auto_update,
+            fetch_lyrics=fetch_lyrics,
+        )
+
+    # 重复同步时只对新视频或尚未取得 cid 的未下载视频请求详情/标签。
+    # 160 首收藏夹日更通常只新增几首，避免每天重新打 320 次 B 站 API。
+    existing_by_bvid = {item["bvid"]: get_song_by_bvid(conn, item["bvid"]) for item in items}
+    enrich_items = [
+        item for item in items
+        if existing_by_bvid[item["bvid"]] is None
+        or (
+            not existing_by_bvid[item["bvid"]].get("file_path")
+            and existing_by_bvid[item["bvid"]].get("cid") is None
+        )
+    ]
 
     def enrich(item: dict) -> dict:
         item["tags"] = bilibili.fetch_tags(item["bvid"], cookie)
@@ -91,31 +126,165 @@ def parse_and_store(url: str, cookie: str | None = None, album: str | None = Non
             pass  # 详情拉不到不阻塞导入，下载时再报错
         return item
 
-    with ThreadPoolExecutor(max_workers=METADATA_THREADS) as ex:
-        items = list(ex.map(enrich, items))
+    if enrich_items:
+        with ThreadPoolExecutor(max_workers=METADATA_THREADS) as ex:
+            enriched = list(ex.map(enrich, enrich_items))
+        enriched_by_bvid = {item["bvid"]: item for item in enriched}
+        items = [enriched_by_bvid.get(item["bvid"], item) for item in items]
+    enriched_bvids = {item["bvid"] for item in enrich_items}
 
-    for item in items:
-        song, artist = parser.parse_title(item["raw_title"], item["uploader"], item["tags"])
-        insert_song(conn, {
-            "bvid": item["bvid"],
-            "job_id": job_id,
-            "title": song,
-            "artist": artist or item["uploader"] or "未知歌手",
-            "album": album,
-            "duration": item["duration"] or None,
-            "cid": item["cid"],
-            "part_index": item["part_index"],
-            "part_title": item["part_title"],
-            "parts": json.dumps(item["parts"], ensure_ascii=False) if item["parts"] else None,
-            "source_url": f"https://www.bilibili.com/video/{item['bvid']}?p={item['part_index']}",
-            "raw_title": item["raw_title"],
-            "uploader": item["uploader"],
-            "tags": json.dumps(item["tags"], ensure_ascii=False),
-            "cover_url": item["cover_url"],
-        })
+    job_id = uuid.uuid4().hex[:12]
+    create_job(
+        conn, job_id, url, media_id, fav_title, len(items),
+        collection_id=collection["id"] if collection else None,
+    )
+    existing_collection_song_ids = set()
+    if collection:
+        existing_collection_song_ids = {
+            row[0] for row in conn.execute(
+                "SELECT song_id FROM collection_songs WHERE collection_id = ?",
+                (collection["id"],),
+            )
+        }
+    collection_song_ids: list[int] = []
 
-    create_job(conn, job_id, url, media_id, fav_title, len(items))
+    for position, item in enumerate(items):
+        existing = existing_by_bvid[item["bvid"]]
+        if existing is not None and item["bvid"] not in enriched_bvids:
+            sid = existing["id"]
+            # 已下载歌曲保留用户编辑过的歌名/歌手/专辑与本地封面，只同步
+            # 收藏夹原始信息；任务成员关系由 job_songs 维护，不再改 songs.job_id。
+            update_song(
+                conn, sid,
+                raw_title=item["raw_title"],
+                uploader=item["uploader"],
+                cover_url=(existing.get("cover_url") if existing.get("cover_url")
+                           and not str(existing["cover_url"]).startswith("http")
+                           else item["cover_url"]),
+            )
+        else:
+            song, artist = parser.parse_title(
+                item["raw_title"], item["uploader"], item.get("tags") or []
+            )
+            sid = insert_song(conn, {
+                "bvid": item["bvid"],
+                "job_id": job_id,
+                "title": song,
+                "artist": artist or item["uploader"] or "未知歌手",
+                "album": album,
+                "duration": item["duration"] or None,
+                "cid": item.get("cid"),
+                "part_index": item.get("part_index") or 1,
+                "part_title": item.get("part_title"),
+                "parts": json.dumps(item.get("parts"), ensure_ascii=False) if item.get("parts") else None,
+                "source_url": f"https://www.bilibili.com/video/{item['bvid']}?p={item.get('part_index') or 1}",
+                "raw_title": item["raw_title"],
+                "uploader": item["uploader"],
+                "tags": json.dumps(item.get("tags") or [], ensure_ascii=False),
+                "cover_url": item["cover_url"],
+            })
+        is_new = (sid not in existing_collection_song_ids) if collection else existing is None
+        add_job_song(conn, job_id, sid, position, is_new)
+        collection_song_ids.append(sid)
+
+    if collection:
+        replace_collection_songs(conn, collection["id"], collection_song_ids)
+        update_collection(
+            conn, collection["id"], last_checked_at=now(), last_updated_at=now(), last_error=None
+        )
     return job_id
+
+
+def refresh_collection(collection_id: int) -> dict:
+    """同步一个已保存收藏夹，并只自动下载本次新增的成员。"""
+    with _active_lock:
+        if collection_id in _active_collection_ids:
+            raise ImportError("该收藏夹正在更新")
+        _active_collection_ids.add(collection_id)
+    conn = get_conn()
+    try:
+        collection = get_collection(conn, collection_id)
+        if not collection:
+            raise ImportError("收藏夹不存在")
+        cookie_file = COOKIE_DIR / f"{collection['media_id']}.txt"
+        cookie = downloader.read_cookie_string(cookie_file)
+        job_id = parse_and_store(
+            collection["url"], cookie, collection.get("album"),
+            save_collection=True,
+            auto_update=collection["auto_update"],
+            collection_id=collection_id,
+            fetch_lyrics=collection["fetch_lyrics"],
+        )
+        new_songs = list_job_songs(conn, job_id, new_only=True)
+        if new_songs:
+            result = start_download(
+                job_id,
+                [song["bvid"] for song in new_songs],
+                collection["fetch_lyrics"],
+            )
+        else:
+            update_job(
+                conn, job_id, status="done", total=0, done=0, failed=0,
+                message="检查完成，没有新增歌曲",
+            )
+            result = {
+                "started": False, "queued": 0, "concurrency": DOWNLOAD_THREADS,
+                "message": "没有新增歌曲",
+            }
+        return {"job_id": job_id, **result}
+    except Exception as exc:
+        if get_collection(conn, collection_id):
+            update_collection(conn, collection_id, last_checked_at=now(), last_error=str(exc)[:500])
+        raise
+    finally:
+        conn.close()
+        with _active_lock:
+            _active_collection_ids.discard(collection_id)
+
+
+def _collection_due(collection: dict, current: datetime) -> bool:
+    if not collection.get("auto_update"):
+        return False
+    checked = collection.get("last_checked_at")
+    if not checked:
+        return True
+    try:
+        return datetime.fromisoformat(checked) <= current - timedelta(days=1)
+    except ValueError:
+        return True
+
+
+def _scheduler_loop() -> None:
+    # 启动后立即检查一次；此后每 15 分钟扫描，单个收藏夹仍严格至少间隔 24 小时。
+    while not _scheduler_stop.is_set():
+        conn = get_conn()
+        try:
+            due = [c for c in list_collections(conn) if _collection_due(c, datetime.now(timezone.utc))]
+        finally:
+            conn.close()
+        for collection in due:
+            if _scheduler_stop.is_set():
+                return
+            try:
+                refresh_collection(collection["id"])
+            except Exception as exc:  # noqa: BLE001
+                logger.error("自动更新收藏夹失败 id=%s: %s", collection["id"], exc, exc_info=True)
+        _scheduler_stop.wait(15 * 60)
+
+
+def start_collection_scheduler() -> None:
+    global _scheduler_thread
+    if _scheduler_thread and _scheduler_thread.is_alive():
+        return
+    _scheduler_stop.clear()
+    _scheduler_thread = threading.Thread(
+        target=_scheduler_loop, daemon=True, name="collection-scheduler"
+    )
+    _scheduler_thread.start()
+
+
+def stop_collection_scheduler() -> None:
+    _scheduler_stop.set()
 
 
 def _download_one(conn, song: dict, cookie_file: Path | None):

@@ -79,6 +79,24 @@ X-Api-Token: <token>
 }
 ```
 
+### SavedCollection
+
+```jsonc
+{
+  "id": 1,
+  "media_id": "4112724176",
+  "url": "https://space.bilibili.com/19468476/favlist?fid=4112724176",
+  "title": "musicplayer",
+  "album": "musicplayer",
+  "auto_update": true,              // 每满 24 小时检查一次
+  "fetch_lyrics": true,
+  "song_count": 160,
+  "downloaded_count": 141,
+  "last_checked_at": "2026-09-01T06:30:00+00:00",
+  "last_error": null
+}
+```
+
 ## 端点
 
 ### 健康检查
@@ -94,9 +112,17 @@ GET /api/health
 
 ```
 POST /api/jobs
-{ "url": "…", "cookie": "SESSDATA=…（可选）", "album": "自定义专辑名（可选）" }
-→ {"job": Job, "songs": [Song…]}      // 全部为 pending，等待确认
+{
+  "url": "…",
+  "cookie": "SESSDATA=…（可选）",
+  "album": "自定义专辑名（可选）",
+  "save_collection": true,
+  "auto_update": true
+}
+→ {"job": Job, "songs": [Song…]}
 ```
+
+已有音频会保留 `ready` 并由前端默认取消勾选；服务端开始任务时还会核对实际文件和分P，避免状态污染导致重下。
 
 错误：`400` 链接格式错误/私密缺 Cookie；`502` 服务器内部错误（含日志）。
 
@@ -127,6 +153,18 @@ DELETE /api/jobs/{id}
 
 取消预览会删除本次新增且尚未下载的记录；重复导入时关联到该任务的既有曲库歌曲会保留并解除任务关联。
 正在下载的任务返回 `409`，防止后台线程与删除操作竞态。
+
+### 已保存收藏夹
+
+```
+GET    /api/collections                         → [SavedCollection…]
+GET    /api/collections/{id}/songs              → 当前仍在该收藏夹内的 [Song…]
+PATCH  /api/collections/{id} {"auto_update":true}
+POST   /api/collections/{id}/refresh             → 立即同步，并自动下载新增歌曲
+DELETE /api/collections/{id}                     → 取消保存，保留歌曲和音频
+```
+
+收藏夹与歌曲使用多对多关系，同一首歌属于多个收藏夹也只保存一份音频。自动更新进程每 15 分钟扫描一次，但每个收藏夹必须距上次检查满 24 小时才会执行；同步只请求新增或缺少 CID 的视频详情，并且只把本次新增成员加入下载队列。
 
 ### 歌曲
 

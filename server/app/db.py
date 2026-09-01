@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     done        INTEGER NOT NULL DEFAULT 0,
     failed      INTEGER NOT NULL DEFAULT 0,
     message     TEXT,
+    collection_id INTEGER,
     created_at  TEXT NOT NULL
 );
 
@@ -68,6 +69,43 @@ CREATE TABLE IF NOT EXISTS playlist_songs (
 CREATE INDEX IF NOT EXISTS idx_playlist_songs_order
 ON playlist_songs (playlist_id, position, added_at);
 
+CREATE TABLE IF NOT EXISTS collections (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    media_id        TEXT UNIQUE NOT NULL,
+    url             TEXT NOT NULL,
+    title           TEXT NOT NULL,
+    album           TEXT,
+    auto_update     INTEGER NOT NULL DEFAULT 0,
+    fetch_lyrics    INTEGER NOT NULL DEFAULT 1,
+    last_checked_at TEXT,
+    last_updated_at TEXT,
+    last_error      TEXT,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS collection_songs (
+    collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+    song_id       INTEGER NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+    position      INTEGER NOT NULL DEFAULT 0,
+    added_at      TEXT NOT NULL,
+    PRIMARY KEY (collection_id, song_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_collection_songs_order
+ON collection_songs (collection_id, position);
+
+CREATE TABLE IF NOT EXISTS job_songs (
+    job_id   TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    song_id  INTEGER NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+    position INTEGER NOT NULL DEFAULT 0,
+    is_new   INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (job_id, song_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_job_songs_order
+ON job_songs (job_id, position);
+
 CREATE TABLE IF NOT EXISTS access_sessions (
     id            TEXT PRIMARY KEY,
     username      TEXT NOT NULL,
@@ -97,6 +135,7 @@ MIGRATIONS = [
     "ALTER TABLE songs ADD COLUMN source_url TEXT",
     "ALTER TABLE songs ADD COLUMN downloaded_cid INTEGER",
     "ALTER TABLE songs ADD COLUMN lyrics_enabled INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE jobs ADD COLUMN collection_id INTEGER",
 ]
 
 
@@ -123,6 +162,13 @@ def get_conn() -> sqlite3.Connection:
                         if "duplicate column name" not in str(exc).lower():
                             raise
                         # 幂等迁移：仅忽略确定的“列已存在”，锁库/磁盘等错误必须暴露。
+                # 旧版用 songs.job_id 表示任务成员；迁移到多对多关系后，同一首歌
+                # 可同时属于多个历史任务和收藏夹，不再因重复导入被重新归属。
+                conn.execute(
+                    "INSERT OR IGNORE INTO job_songs (job_id, song_id, position, is_new) "
+                    "SELECT job_id, id, id, 0 FROM songs WHERE job_id IS NOT NULL "
+                    "AND EXISTS (SELECT 1 FROM jobs WHERE jobs.id = songs.job_id)"
+                )
                 conn.commit()
                 _initialized = True
     except Exception:
@@ -167,11 +213,11 @@ def _song_row(row: sqlite3.Row) -> dict:
 # ---------- jobs ----------
 
 def create_job(conn: sqlite3.Connection, job_id: str, url: str, media_id: str,
-               title: str, total: int) -> None:
+               title: str, total: int, collection_id: int | None = None) -> None:
     conn.execute(
-        "INSERT INTO jobs (id, url, media_id, title, status, total, created_at) "
-        "VALUES (?,?,?,?, 'parsed', ?, ?)",
-        (job_id, url, media_id, title, total, now()),
+        "INSERT INTO jobs (id, url, media_id, title, status, total, collection_id, created_at) "
+        "VALUES (?,?,?,?, 'parsed', ?, ?, ?)",
+        (job_id, url, media_id, title, total, collection_id, now()),
     )
     conn.commit()
 
@@ -205,7 +251,7 @@ def insert_song(conn: sqlite3.Connection, data: dict) -> int:
         "VALUES (:bvid, :job_id, :title, :artist, :album, :duration, :cid, :part_index, "
         ":part_title, :parts, :source_url, :raw_title, :uploader, :tags, :cover_url, 'pending', :created_at) "
         "ON CONFLICT(bvid) DO UPDATE SET "
-        "job_id=excluded.job_id, title=excluded.title, artist=excluded.artist, "
+        "job_id=songs.job_id, title=excluded.title, artist=excluded.artist, "
         "album=excluded.album, duration=COALESCE(excluded.duration, songs.duration), "
         "cid=COALESCE(excluded.cid, songs.cid), "
         "part_index=CASE WHEN excluded.cid IS NULL THEN songs.part_index ELSE excluded.part_index END, "
@@ -232,19 +278,54 @@ def get_song(conn: sqlite3.Connection, sid: int) -> dict | None:
 
 def list_songs(conn: sqlite3.Connection, job_id: str | None = None,
                status: str | None = None) -> list[dict]:
-    q = "SELECT * FROM songs"
+    q = "SELECT songs.* FROM songs"
     conds, args = [], []
     if job_id:
-        conds.append("job_id = ?")
+        has_memberships = conn.execute(
+            "SELECT 1 FROM job_songs WHERE job_id = ? LIMIT 1", (job_id,)
+        ).fetchone()
+        if has_memberships:
+            q += " JOIN job_songs js ON js.song_id = songs.id"
+            conds.append("js.job_id = ?")
+        else:
+            conds.append("songs.job_id = ?")
         args.append(job_id)
     if status:
-        conds.append("status = ?")
+        conds.append("songs.status = ?")
         args.append(status)
     if conds:
         q += " WHERE " + " AND ".join(conds)
-    q += " ORDER BY id"
+    q += " ORDER BY " + (
+        "js.position, songs.id" if job_id and has_memberships else "songs.id"
+    )
     rows = conn.execute(q, args).fetchall()
     return [_song_row(r) for r in rows]
+
+
+def get_song_by_bvid(conn: sqlite3.Connection, bvid: str) -> dict | None:
+    row = conn.execute("SELECT * FROM songs WHERE bvid = ?", (bvid,)).fetchone()
+    return _song_row(row) if row else None
+
+
+def add_job_song(conn: sqlite3.Connection, job_id: str, song_id: int,
+                 position: int, is_new: bool) -> None:
+    conn.execute(
+        "INSERT OR REPLACE INTO job_songs (job_id, song_id, position, is_new) VALUES (?,?,?,?)",
+        (job_id, song_id, position, int(is_new)),
+    )
+    conn.commit()
+
+
+def list_job_songs(conn: sqlite3.Connection, job_id: str,
+                   new_only: bool = False) -> list[dict]:
+    q = (
+        "SELECT s.* FROM job_songs js JOIN songs s ON s.id = js.song_id "
+        "WHERE js.job_id = ?"
+    )
+    if new_only:
+        q += " AND js.is_new = 1"
+    q += " ORDER BY js.position, s.id"
+    return [_song_row(row) for row in conn.execute(q, (job_id,)).fetchall()]
 
 
 def update_song(conn: sqlite3.Connection, sid: int, **fields) -> None:
@@ -340,6 +421,113 @@ def remove_song_from_playlist(conn: sqlite3.Connection, playlist_id: int, song_i
     )
     conn.commit()
     return cur.rowcount > 0
+
+
+# ---------- saved Bilibili collections ----------
+
+def upsert_collection(conn: sqlite3.Connection, *, media_id: str, url: str,
+                      title: str, album: str | None, auto_update: bool,
+                      fetch_lyrics: bool = True) -> dict:
+    timestamp = now()
+    conn.execute(
+        "INSERT INTO collections "
+        "(media_id, url, title, album, auto_update, fetch_lyrics, created_at, updated_at) "
+        "VALUES (?,?,?,?,?,?,?,?) "
+        "ON CONFLICT(media_id) DO UPDATE SET url=excluded.url, title=excluded.title, "
+        "album=COALESCE(excluded.album, collections.album), "
+        "auto_update=excluded.auto_update, fetch_lyrics=excluded.fetch_lyrics, "
+        "updated_at=excluded.updated_at",
+        (media_id, url, title, album, int(auto_update), int(fetch_lyrics), timestamp, timestamp),
+    )
+    conn.commit()
+    return get_collection_by_media_id(conn, media_id)
+
+
+def _collection_row(row: sqlite3.Row) -> dict:
+    result = dict(row)
+    result["auto_update"] = bool(result["auto_update"])
+    result["fetch_lyrics"] = bool(result["fetch_lyrics"])
+    return result
+
+
+def list_collections(conn: sqlite3.Connection) -> list[dict]:
+    rows = conn.execute(
+        "SELECT c.*, COUNT(cs.song_id) AS song_count, "
+        "SUM(CASE WHEN s.file_path IS NOT NULL THEN 1 ELSE 0 END) AS downloaded_count "
+        "FROM collections c LEFT JOIN collection_songs cs ON cs.collection_id = c.id "
+        "LEFT JOIN songs s ON s.id = cs.song_id GROUP BY c.id ORDER BY c.created_at, c.id"
+    ).fetchall()
+    return [_collection_row(row) for row in rows]
+
+
+def get_collection(conn: sqlite3.Connection, collection_id: int) -> dict | None:
+    row = conn.execute(
+        "SELECT c.*, COUNT(cs.song_id) AS song_count, "
+        "SUM(CASE WHEN s.file_path IS NOT NULL THEN 1 ELSE 0 END) AS downloaded_count "
+        "FROM collections c LEFT JOIN collection_songs cs ON cs.collection_id = c.id "
+        "LEFT JOIN songs s ON s.id = cs.song_id WHERE c.id = ? GROUP BY c.id",
+        (collection_id,),
+    ).fetchone()
+    return _collection_row(row) if row else None
+
+
+def get_collection_by_media_id(conn: sqlite3.Connection, media_id: str) -> dict | None:
+    row = conn.execute("SELECT * FROM collections WHERE media_id = ?", (media_id,)).fetchone()
+    return _collection_row(row) if row else None
+
+
+def update_collection(conn: sqlite3.Connection, collection_id: int, **fields) -> dict | None:
+    if fields:
+        fields["updated_at"] = now()
+        sets = ", ".join(f"{key} = ?" for key in fields)
+        conn.execute(
+            f"UPDATE collections SET {sets} WHERE id = ?",
+            (*fields.values(), collection_id),
+        )
+        conn.commit()
+    return get_collection(conn, collection_id)
+
+
+def delete_collection(conn: sqlite3.Connection, collection_id: int) -> bool:
+    cur = conn.execute("DELETE FROM collections WHERE id = ?", (collection_id,))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def replace_collection_songs(conn: sqlite3.Connection, collection_id: int,
+                             song_ids: list[int]) -> None:
+    timestamp = now()
+    keep = set(song_ids)
+    existing = {
+        row[0] for row in conn.execute(
+            "SELECT song_id FROM collection_songs WHERE collection_id = ?",
+            (collection_id,),
+        )
+    }
+    for position, song_id in enumerate(song_ids):
+        conn.execute(
+            "INSERT INTO collection_songs (collection_id, song_id, position, added_at) "
+            "VALUES (?,?,?,?) ON CONFLICT(collection_id, song_id) "
+            "DO UPDATE SET position=excluded.position",
+            (collection_id, song_id, position, timestamp),
+        )
+    removed = existing - keep
+    if removed:
+        marks = ",".join("?" for _ in removed)
+        conn.execute(
+            f"DELETE FROM collection_songs WHERE collection_id = ? AND song_id IN ({marks})",
+            (collection_id, *removed),
+        )
+    conn.commit()
+
+
+def list_collection_songs(conn: sqlite3.Connection, collection_id: int) -> list[dict]:
+    rows = conn.execute(
+        "SELECT s.* FROM collection_songs cs JOIN songs s ON s.id = cs.song_id "
+        "WHERE cs.collection_id = ? ORDER BY cs.position, s.id",
+        (collection_id,),
+    ).fetchall()
+    return [_song_row(row) for row in rows]
 
 
 # ---------- successful access audit ----------

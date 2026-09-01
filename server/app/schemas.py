@@ -8,6 +8,8 @@ class ImportRequest(BaseModel):
     url: str
     cookie: Optional[str] = None       # 收藏夹为私密时需提供 B 站 Cookie
     album: Optional[str] = None        # 专辑名，默认取收藏夹标题
+    save_collection: bool = False      # 保存链接，供手动/自动增量更新
+    auto_update: bool = False          # 每 24 小时自动同步并下载新增歌曲
 
 
 class SongUpdate(BaseModel):
@@ -29,6 +31,11 @@ class StartRequest(BaseModel):
 
 class PlaylistWrite(BaseModel):
     name: str
+
+
+class CollectionUpdate(BaseModel):
+    auto_update: Optional[bool] = None
+    fetch_lyrics: Optional[bool] = None
 
 
 class LoginRequest(BaseModel):

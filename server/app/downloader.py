@@ -105,6 +105,12 @@ def _cookie_str_from_netscape(text: str) -> str | None:
     return "; ".join(parts) or None
 
 
+def read_cookie_string(path: Path) -> str | None:
+    if not path.exists():
+        return None
+    return _cookie_str_from_netscape(path.read_text(encoding="utf-8", errors="ignore"))
+
+
 def _direct_dash(bvid: str, cookie: str | None, tmp: Path, cid: int | None = None) -> dict:
     """直连 DASH：view → playurl → 把 CDN 音频直链交给 yt-dlp 下载。
 

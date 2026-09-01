@@ -17,14 +17,18 @@ from .bilibili import BiliError
 from .config import ALLOWED_ORIGINS, API_TOKEN, COVER_DIR, MUSIC_DIR, SESSION_TTL_HOURS
 from .db import (access_audit, add_access_session, add_song_to_playlist,
                  cached_ip_location, create_playlist, delete_playlist,
-                 delete_song, get_conn, get_job, get_playlist, get_song,
-                 list_jobs, list_playlist_songs, list_playlists, list_songs,
+                 delete_collection, delete_song, get_collection, get_conn,
+                 get_job, get_playlist, get_song, list_collection_songs,
+                 list_collections, list_jobs, list_playlist_songs, list_playlists, list_songs,
                  now, recover_interrupted_downloads, remove_song_from_playlist,
-                 rename_playlist, touch_access_session, update_song)
+                 rename_playlist, touch_access_session, update_collection, update_song)
 from . import auth as auth_service, downloader, lyrics
 from .importer import (ImportError, is_job_active, is_song_active,
-                       parse_and_store, start_download)
-from .schemas import ImportRequest, LoginRequest, PlaylistWrite, SongUpdate, StartRequest
+                       parse_and_store, refresh_collection,
+                       start_collection_scheduler, start_download,
+                       stop_collection_scheduler)
+from .schemas import (CollectionUpdate, ImportRequest, LoginRequest,
+                      PlaylistWrite, SongUpdate, StartRequest)
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -37,7 +41,11 @@ async def lifespan(_app: FastAPI):
             )
     finally:
         conn.close()
-    yield
+    start_collection_scheduler()
+    try:
+        yield
+    finally:
+        stop_collection_scheduler()
 
 
 app = FastAPI(title="MusicPlayer API", version="0.2.0", lifespan=lifespan)
@@ -184,7 +192,11 @@ def auth_access_audit():
 def create_job(req: ImportRequest):
     """粘贴收藏夹链接 → 解析标题 → 返回预览（不下载）。"""
     try:
-        job_id = parse_and_store(req.url, req.cookie, req.album)
+        job_id = parse_and_store(
+            req.url, req.cookie, req.album,
+            save_collection=req.save_collection,
+            auto_update=req.auto_update and req.save_collection,
+        )
     except (ImportError, BiliError) as e:
         raise HTTPException(400, str(e)) from e
     except Exception as e:  # noqa: BLE001
@@ -233,16 +245,75 @@ def job_delete(job_id: str):
         raise HTTPException(404, "任务不存在")
     if is_job_active(job_id):
         raise HTTPException(409, "任务正在下载，完成后才能删除")
-    for s in list_songs(conn, job_id=job_id):
-        # 取消重复导入时，已有歌曲也会暂时归到新 job。绝不能因此删除已下载
-        # 文件；只移除这次新建且尚无文件的预览记录。
-        if s.get("file_path") or s["status"] == "ready":
-            conn.execute("UPDATE songs SET job_id = NULL WHERE id = ?", (s["id"],))
-        else:
-            conn.execute("DELETE FROM songs WHERE id = ?", (s["id"],))
+    memberships = conn.execute(
+        "SELECT song_id, is_new FROM job_songs WHERE job_id = ?", (job_id,)
+    ).fetchall()
+    if memberships:
+        for membership in memberships:
+            song = get_song(conn, membership["song_id"])
+            if membership["is_new"] and song and not song.get("file_path"):
+                conn.execute("DELETE FROM songs WHERE id = ?", (song["id"],))
+    else:
+        # 兼容升级前尚未迁移的任务。
+        for song in list_songs(conn, job_id=job_id):
+            if song.get("file_path") or song["status"] == "ready":
+                conn.execute("UPDATE songs SET job_id = NULL WHERE id = ?", (song["id"],))
+            else:
+                conn.execute("DELETE FROM songs WHERE id = ?", (song["id"],))
     conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
     conn.commit()
     return {"deleted": True}
+
+
+# ---------- 已保存收藏夹 ----------
+
+@app.get("/api/collections")
+def collections():
+    conn = get_conn()
+    return list_collections(conn)
+
+
+@app.get("/api/collections/{collection_id}/songs")
+def collection_songs(collection_id: int):
+    conn = get_conn()
+    if not get_collection(conn, collection_id):
+        raise HTTPException(404, "收藏夹不存在")
+    return list_collection_songs(conn, collection_id)
+
+
+@app.patch("/api/collections/{collection_id}")
+def collection_update(collection_id: int, req: CollectionUpdate):
+    conn = get_conn()
+    if not get_collection(conn, collection_id):
+        raise HTTPException(404, "收藏夹不存在")
+    fields = {
+        key: int(value) for key, value in req.model_dump().items() if value is not None
+    }
+    return update_collection(conn, collection_id, **fields)
+
+
+@app.post("/api/collections/{collection_id}/refresh")
+def collection_refresh(collection_id: int):
+    conn = get_conn()
+    if not get_collection(conn, collection_id):
+        raise HTTPException(404, "收藏夹不存在")
+    try:
+        return refresh_collection(collection_id)
+    except (ImportError, BiliError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("uvicorn.error").exception(
+            "手动更新收藏夹失败 id=%s", collection_id
+        )
+        raise HTTPException(502, f"更新失败：{exc}") from exc
+
+
+@app.delete("/api/collections/{collection_id}")
+def collection_delete(collection_id: int):
+    conn = get_conn()
+    if not delete_collection(conn, collection_id):
+        raise HTTPException(404, "收藏夹不存在")
+    return {"deleted": True, "songs_preserved": True}
 
 
 # ---------- 歌曲 ----------
