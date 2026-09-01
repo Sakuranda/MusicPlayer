@@ -53,5 +53,42 @@ class MetadataTests(unittest.TestCase):
         self.assertTrue(fake.saved)
 
 
+class DirectDashTests(unittest.TestCase):
+    def test_known_cid_survives_blocked_detail_api(self):
+        fake_info = {"ext": "m4a"}
+
+        class FakeYDL:
+            def __init__(self, _options):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def extract_info(self, _url, download):
+                self.download = download
+                return fake_info
+
+            def prepare_filename(self, _info):
+                return str(target)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "BVTEST.m4a"
+            target.write_bytes(b"audio")
+            with (
+                patch.object(downloader.bilibili, "fetch_detail", side_effect=RuntimeError("HTTP 412")),
+                patch.object(downloader.bilibili, "fetch_playurl", return_value={
+                    "dash": {"audio": [{"id": 30280, "baseUrl": "https://cdn/audio.m4s"}]},
+                }) as playurl,
+                patch("yt_dlp.YoutubeDL", FakeYDL),
+            ):
+                result = downloader._direct_dash("BVTEST", None, Path(tmp), cid=9988)
+
+        playurl.assert_called_once_with("BVTEST", 9988, None)
+        self.assertEqual(result["duration"], 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()

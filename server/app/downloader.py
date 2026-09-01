@@ -114,7 +114,14 @@ def _direct_dash(bvid: str, cookie: str | None, tmp: Path, cid: int | None = Non
     """
     import yt_dlp
 
-    detail = bilibili.fetch_detail(bvid, cookie)
+    # 已从收藏夹/数据库拿到 cid 时，view API 只是补封面和时长，不应成为
+    # 下载前置条件。数据中心 IP 常见的 412 恰好主要发生在这个详情请求。
+    detail = {}
+    try:
+        detail = bilibili.fetch_detail(bvid, cookie)
+    except Exception:
+        if cid is None:
+            raise
     pages = detail.get("pages") or []
     if cid is not None:
         page = next((p for p in pages if p.get("cid") == cid), None)

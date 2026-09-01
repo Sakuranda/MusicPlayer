@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from . import bilibili, downloader, lyrics, parser
-from .config import COOKIE_DIR, DOWNLOAD_THREADS, METADATA_THREADS
+from .config import COOKIE_DIR, DOWNLOAD_THREADS, METADATA_THREADS, MUSIC_DIR
 from .db import (create_job, get_conn, get_job, insert_song, list_songs,
                  update_job, update_song)
 
@@ -55,7 +55,9 @@ def parse_and_store(url: str, cookie: str | None = None, album: str | None = Non
         item["tags"] = bilibili.fetch_tags(item["bvid"], cookie)
         # 视频详情：获取分P信息（cid、每P标题与时长）
         item["parts"] = []
-        item["cid"] = None
+        # 收藏夹列表自带的首 P cid 比额外的详情请求更抗风控；详情成功时再
+        # 用完整 pages 覆盖它，失败则至少保留这个可直接请求 playurl 的 cid。
+        item["cid"] = item.get("cid")
         item["part_index"] = 1
         item["part_title"] = None
         try:
@@ -208,11 +210,21 @@ def start_download(job_id: str, bvids: list[str] | None = None,
     if not selected:
         raise ImportError("所选歌曲不属于该任务")
 
-    skipped = [
-        s for s in selected
-        if s["status"] == "ready"
-        and (s.get("downloaded_cid") is None or s.get("downloaded_cid") == s.get("cid"))
-    ]
+    skipped = []
+    for song in selected:
+        rel = song.get("file_path")
+        file_exists = bool(rel and (MUSIC_DIR / rel).is_file())
+        same_or_unknown_part = (
+            song.get("cid") is None
+            or song.get("downloaded_cid") is None
+            or song.get("downloaded_cid") == song.get("cid")
+        )
+        if file_exists and same_or_unknown_part:
+            skipped.append(song)
+            # 文件才是下载完成的最终事实。旧任务中断、重启或风控失败可能只
+            # 污染 status/error，不能让已有音频因此被全量重新下载。
+            if song["status"] != "ready" or song.get("error"):
+                update_song(conn, song["id"], status="ready", error=None)
     songs = [s for s in selected if s not in skipped]
 
     with _active_lock:

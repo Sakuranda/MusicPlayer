@@ -50,6 +50,27 @@ class DataSafetyTests(unittest.TestCase):
         row = self.conn.execute("SELECT cover_url FROM songs WHERE id = ?", (sid,)).fetchone()
         self.assertEqual(row["cover_url"], "BVTEST.jpg")
 
+    def test_reimport_risk_failure_preserves_downloaded_part(self):
+        sid = insert_song(self.conn, song_data(cid=7788, part_index=2, part_title="第二首"))
+        self.conn.execute(
+            "UPDATE songs SET downloaded_cid = 7788, file_path = '专辑/歌.m4a', status = 'ready' "
+            "WHERE id = ?",
+            (sid,),
+        )
+        self.conn.commit()
+
+        returned_id = insert_song(
+            self.conn,
+            song_data(cid=None, part_index=1, part_title=None, parts=None),
+        )
+
+        row = self.conn.execute(
+            "SELECT cid, part_index, part_title, downloaded_cid FROM songs WHERE id = ?",
+            (sid,),
+        ).fetchone()
+        self.assertEqual(returned_id, sid)
+        self.assertEqual(tuple(row), (7788, 2, "第二首", 7788))
+
     def test_cancel_reimport_keeps_ready_song_and_removes_new_preview(self):
         self.conn.execute(
             "INSERT INTO jobs (id, url, status, total, created_at) "

@@ -85,6 +85,38 @@ class DownloadQueueTests(unittest.TestCase):
         conn.close()
         self.assertEqual(remaining, 5)
 
+    def test_existing_file_repairs_stale_status_and_is_not_queued(self):
+        music_dir = Path(self.tempdir.name) / "music"
+        existing = music_dir / "album" / "existing.m4a"
+        existing.parent.mkdir(parents=True)
+        existing.write_bytes(b"audio")
+        conn = self.get_conn()
+        conn.execute(
+            "UPDATE songs SET status='error', error='旧任务中断', file_path=?, "
+            "cid=NULL, downloaded_cid=123 WHERE bvid='BV0000000000'",
+            ("album/existing.m4a",),
+        )
+        conn.commit()
+        conn.close()
+
+        with (
+            patch.object(importer, "get_conn", side_effect=self.get_conn),
+            patch.object(importer, "MUSIC_DIR", music_dir),
+            patch.object(importer, "_download_one") as download,
+        ):
+            result = importer.start_download("job", ["BV0000000000"], fetch_lyrics=False)
+
+        self.assertFalse(result["started"])
+        self.assertEqual(result["queued"], 0)
+        download.assert_not_called()
+        conn = self.get_conn()
+        row = conn.execute(
+            "SELECT status, error FROM songs WHERE bvid='BV0000000000'"
+        ).fetchone()
+        conn.close()
+        self.assertEqual(row["status"], "ready")
+        self.assertIsNone(row["error"])
+
 
 if __name__ == "__main__":
     unittest.main()

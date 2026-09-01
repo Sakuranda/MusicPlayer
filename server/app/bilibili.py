@@ -144,6 +144,9 @@ def fetch_favorites(media_ids, cookie: Optional[str] = None, page_size: int = 20
                             "duration": m.get("duration", 0),
                             "uploader": (m.get("upper") or {}).get("name", ""),
                             "uploader_mid": (m.get("upper") or {}).get("mid", 0),
+                            # 收藏夹接口通常直接带首 P cid。详情接口受风控时也能用它
+                            # 请求 playurl，避免整条直连路线依赖 view API。
+                            "cid": (m.get("ugc") or {}).get("first_cid"),
                         }
                     )
                 if not data["data"].get("has_more"):

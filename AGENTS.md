@@ -108,6 +108,7 @@ API Token：`d0689adf8786539510fc906531076ac7`（服务器 deploy/.env 内）。
 - 2026-08-24 香港机房访问 ipwho.is 的 TLS/响应偶尔超过 2.5 秒，过短超时会让所有新 IP 属地静默为空；新 IP 首次成功登录允许 5 秒超时，成功后按 IP 缓存到 SQLite，失败仍不得阻断登录
 - 2026-08-25 macOS 媒体键与 iOS 锁屏控制必须走 Media Session API，不能监听普通键盘事件；metadata 同步歌名/歌手/专辑/绝对封面 URL，playbackState/positionState 同步实际 Audio。WebKit 对 action 支持不一致，setActionHandler 必须逐项 try/catch；系统 previoustrack 应直接切歌，不能复用“播放超过 3 秒先回到开头”的 UI prev
 - 2026-08-25 Media Session 的 metadata effect cleanup 会在每次切歌时执行，不只是组件卸载；若此时清空 metadata 并撤销 action handler，macOS 会在空档把“正在播放”切到网易云等其他播放器。曲目切换只覆盖元数据，action handler 只注册一次并用 ref 获取最新队列，仅在 PlayerProvider 真正卸载时统一清理
+- 2026-09-01 重复导入遇到 B 站详情风控时，空 cid 覆盖既有 cid，再叠加旧任务把 ready 状态污染成 pending/error，会让已有文件被误判为分P变化并全量重下。去重必须以实际 file_path 文件存在为最终事实；当前 cid 未知时保留既有分P并视为未变化，修复脏状态为 ready。收藏夹列表的 ugc.first_cid 可作为 view API 412 时的直连依据，已知 cid 时详情请求只能补元数据、不可阻断 playurl
 
 ## 维护规则
 

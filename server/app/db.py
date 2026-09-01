@@ -206,9 +206,13 @@ def insert_song(conn: sqlite3.Connection, data: dict) -> int:
         ":part_title, :parts, :source_url, :raw_title, :uploader, :tags, :cover_url, 'pending', :created_at) "
         "ON CONFLICT(bvid) DO UPDATE SET "
         "job_id=excluded.job_id, title=excluded.title, artist=excluded.artist, "
-        "album=excluded.album, duration=excluded.duration, cid=excluded.cid, "
-        "part_index=excluded.part_index, part_title=excluded.part_title, parts=excluded.parts, "
-        "source_url=excluded.source_url, raw_title=excluded.raw_title, "
+        "album=excluded.album, duration=COALESCE(excluded.duration, songs.duration), "
+        "cid=COALESCE(excluded.cid, songs.cid), "
+        "part_index=CASE WHEN excluded.cid IS NULL THEN songs.part_index ELSE excluded.part_index END, "
+        "part_title=CASE WHEN excluded.cid IS NULL THEN songs.part_title ELSE excluded.part_title END, "
+        "parts=COALESCE(excluded.parts, songs.parts), "
+        "source_url=CASE WHEN excluded.cid IS NULL AND songs.source_url IS NOT NULL "
+        "THEN songs.source_url ELSE excluded.source_url END, raw_title=excluded.raw_title, "
         "uploader=excluded.uploader, tags=excluded.tags, "
         "cover_url=CASE "
         "WHEN songs.cover_url IS NOT NULL AND songs.cover_url NOT LIKE 'http%' "
@@ -216,7 +220,9 @@ def insert_song(conn: sqlite3.Connection, data: dict) -> int:
         {**data, "created_at": now()},
     )
     conn.commit()
-    return cur.lastrowid
+    # SQLite 在 ON CONFLICT UPDATE 时 lastrowid 可能是 0 或上一条插入的 id。
+    # 始终按唯一 bvid 回查，保证调用者拿到真实歌曲。
+    return conn.execute("SELECT id FROM songs WHERE bvid = ?", (data["bvid"],)).fetchone()[0]
 
 
 def get_song(conn: sqlite3.Connection, sid: int) -> dict | None:
