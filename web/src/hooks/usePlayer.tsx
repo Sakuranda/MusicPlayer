@@ -12,6 +12,15 @@ import { PlayerContext, type PlaybackMode } from './playerContext'
 const PLAYBACK_MODE_KEY = 'mp_playback_mode'
 const DEFAULT_DOCUMENT_TITLE = 'MusicPlayer · B站收藏夹曲库'
 
+function shuffledCopy<T>(items: T[]): T[] {
+  const shuffled = [...items]
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+  }
+  return shuffled
+}
+
 function initialPlaybackMode(): PlaybackMode {
   const saved = localStorage.getItem(PLAYBACK_MODE_KEY)
   return saved === 'shuffle' || saved === 'one' ? saved : 'repeat'
@@ -19,6 +28,9 @@ function initialPlaybackMode(): PlaybackMode {
 
 export function PlayerProvider({ children }: { children: ReactNode }) {
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const sourceQueueRef = useRef<Song[]>([])
+  const lastShuffleStartIdRef = useRef<number | null>(null)
+  const lastShuffleSignatureRef = useRef('')
   const [queue, setQueue] = useState<Song[]>([])
   const [index, setIndex] = useState(-1)
   const [current, setCurrent] = useState<Song | null>(null)
@@ -69,10 +81,30 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     a.play().catch(() => setPlaying(false))
   }, [])
 
-  const randomIndex = useCallback((length: number, currentIndex: number) => {
-    if (length <= 1) return 0
-    const offset = 1 + Math.floor(Math.random() * (length - 1))
-    return (currentIndex + offset) % length
+  const buildShuffleQueue = useCallback((songs: Song[], leading?: Song, avoidStartId?: number) => {
+    if (!songs.length) return []
+    let shuffled: Song[]
+    if (leading) {
+      shuffled = [leading, ...shuffledCopy(songs.filter((song) => song.id !== leading.id))]
+    } else {
+      shuffled = shuffledCopy(songs)
+      const blockedStartId = avoidStartId ?? lastShuffleStartIdRef.current
+      if (shuffled.length > 1 && shuffled[0].id === blockedStartId) {
+        const swapIndex = 1 + Math.floor(Math.random() * (shuffled.length - 1))
+        ;[shuffled[0], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[0]]
+      }
+    }
+
+    let signature = shuffled.map((song) => song.id).join(',')
+    if (signature === lastShuffleSignatureRef.current && shuffled.length > 2) {
+      // 保留已选定的起始歌曲，只交换后续顺序；两首歌时无法同时改变
+      // 顺序并避免轮末歌曲紧接着重复，优先保证不连续重复。
+      ;[shuffled[1], shuffled[2]] = [shuffled[2], shuffled[1]]
+      signature = shuffled.map((song) => song.id).join(',')
+    }
+    lastShuffleStartIdRef.current = shuffled[0].id
+    lastShuffleSignatureRef.current = signature
+    return shuffled
   }, [])
 
   // 播放结束自动切下一首（依赖 queue/index 重新绑定）
@@ -89,14 +121,18 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         a.play().catch(() => setPlaying(false))
         return
       }
-      const n = playbackMode === 'shuffle'
-        ? randomIndex(queue.length, index)
-        : (index + 1) % queue.length
+      if (playbackMode === 'shuffle' && index === queue.length - 1 && queue.length > 1) {
+        const sourceQueue = sourceQueueRef.current.length ? sourceQueueRef.current : queue
+        const shuffled = buildShuffleQueue(sourceQueue, undefined, queue[index].id)
+        start(shuffled[0], shuffled, 0)
+        return
+      }
+      const n = (index + 1) % queue.length
       start(queue[n], queue, n)
     }
     a.addEventListener('ended', onEnded)
     return () => a.removeEventListener('ended', onEnded)
-  }, [queue, index, playbackMode, randomIndex, start])
+  }, [buildShuffleQueue, queue, index, playbackMode, start])
 
   const playSong = useCallback((song: Song, songs?: Song[]) => {
     const a = audioRef.current
@@ -107,14 +143,26 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       return
     }
     const q = songs && songs.length ? songs : queue.length ? queue : [song]
-    const i = Math.max(0, q.findIndex((s) => s.id === song.id))
+    sourceQueueRef.current = q
+    if (playbackMode === 'shuffle') {
+      const shuffled = buildShuffleQueue(q, song)
+      start(song, shuffled, 0)
+      return
+    }
+    const i = Math.max(0, q.findIndex((item) => item.id === song.id))
     start(song, q, i)
-  }, [current, queue, start])
+  }, [buildShuffleQueue, current, playbackMode, queue, start])
 
   const playQueue = useCallback((songs: Song[], i = 0) => {
     if (!songs.length) return
+    sourceQueueRef.current = songs
+    if (playbackMode === 'shuffle') {
+      const shuffled = buildShuffleQueue(songs)
+      start(shuffled[0], shuffled, 0)
+      return
+    }
     start(songs[i], songs, i)
-  }, [start])
+  }, [buildShuffleQueue, playbackMode, start])
 
   const toggle = useCallback(() => {
     const a = audioRef.current
@@ -125,11 +173,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const next = useCallback(() => {
     if (!queue.length) return
-    const n = playbackMode === 'shuffle'
-      ? randomIndex(queue.length, index)
-      : (index + 1) % queue.length
+    if (playbackMode === 'shuffle' && index === queue.length - 1 && queue.length > 1) {
+      const sourceQueue = sourceQueueRef.current.length ? sourceQueueRef.current : queue
+      const shuffled = buildShuffleQueue(sourceQueue, undefined, queue[index].id)
+      start(shuffled[0], shuffled, 0)
+      return
+    }
+    const n = (index + 1) % queue.length
     start(queue[n], queue, n)
-  }, [queue, index, playbackMode, randomIndex, start])
+  }, [buildShuffleQueue, queue, index, playbackMode, start])
 
   // 系统级“上一曲”必须确实切换歌曲；播放器 UI 的 prev 仍保留播放超过
   // 3 秒时先回到本曲开头的常见交互。
@@ -173,7 +225,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const setPlaybackMode = useCallback((mode: PlaybackMode) => {
     setPlaybackModeState(mode)
     localStorage.setItem(PLAYBACK_MODE_KEY, mode)
-  }, [])
+    if (!current || !queue.length) return
+
+    const sourceQueue = sourceQueueRef.current.length ? sourceQueueRef.current : queue
+    const nextQueue = mode === 'shuffle'
+      ? buildShuffleQueue(sourceQueue, current)
+      : sourceQueue
+    setQueue(nextQueue)
+    setIndex(Math.max(0, nextQueue.findIndex((song) => song.id === current.id)))
+  }, [buildShuffleQueue, current, queue])
 
   // 向 macOS 控制中心/媒体键和 iOS 锁屏提供歌曲信息与系统控制。
   useEffect(() => {
