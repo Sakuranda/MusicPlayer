@@ -14,6 +14,7 @@ import mutagen
 from mutagen.mp4 import MP4, MP4Cover
 from PIL import Image, ImageOps
 
+from .media import normalize_m4a
 from . import bilibili
 from .config import (BILI_HEADERS, COVER_DIR, COVER_MAX_SIZE, COVER_QUALITY,
                      MUSIC_DIR)
@@ -277,6 +278,7 @@ def tag_and_store(
     lyrics_text: str | None = None,
 ) -> str:
     """不重编码音轨，写入元数据并移动到曲库目录。"""
+    normalize_m4a(src)
     try:
         audio = MP4(str(src))
         if audio.tags is None:

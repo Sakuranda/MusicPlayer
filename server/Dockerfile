@@ -19,6 +19,7 @@ COPY server/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY server/app ./app
+COPY server/scripts ./scripts
 COPY --from=web /app/dist /app/webdist
 
 ENV DATA_DIR=/data \

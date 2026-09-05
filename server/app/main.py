@@ -523,17 +523,22 @@ def playlist_song_remove(playlist_id: int, sid: int):
 
 # ---------- 媒体 ----------
 
-@app.get("/api/stream/{sid}")
+@app.api_route("/api/stream/{sid}", methods=["GET", "HEAD"])
 def stream(sid: int):
     conn = get_conn()
-    song = get_song(conn, sid)
+    try:
+        song = get_song(conn, sid)
+    finally:
+        conn.close()
     if not song or not song.get("file_path"):
         raise HTTPException(404, "音频不存在")
     path = MUSIC_DIR / song["file_path"]
     if not path.exists():
         raise HTTPException(404, "音频文件丢失")
     return FileResponse(path, media_type="audio/mp4",
-                        filename=f"{song['artist']} - {song['title']}.m4a")
+                        filename=f"{song['artist']} - {song['title']}.m4a",
+                        content_disposition_type="inline",
+                        headers={"Cache-Control": "private, no-cache"})
 
 
 @app.get("/api/songs/{sid}/cover")

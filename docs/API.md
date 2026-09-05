@@ -232,3 +232,5 @@ curl $BASE/api/jobs/<job_id> -H "X-Api-Token: $TOKEN"
 # 5. 播放
 curl -r 0-100000 "$BASE/api/stream/149?token=$TOKEN" -o /dev/null
 ```
+
+音频端点 `GET/HEAD /api/stream/{sid}` 支持 HTTP Range（206 / 416），使用 `Content-Disposition: inline` 和私有缓存重新验证；会话或 API Token 鉴权同其他受保护端点。

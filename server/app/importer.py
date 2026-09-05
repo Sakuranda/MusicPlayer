@@ -325,7 +325,7 @@ def _download_one(conn, song: dict, cookie_file: Path | None):
         update_song(conn, sid,
                     status="ready",
                     file_path=rel,
-                    duration=song["duration"] or result["duration"],
+                    duration=downloader.MP4(downloader.MUSIC_DIR / rel).info.length,
                     cover_url=cover_name or song["cover_url"],
                     downloaded_cid=song.get("cid"),
                     error=None)
