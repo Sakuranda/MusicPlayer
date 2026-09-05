@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Disc3, Loader2, LockKeyhole, RefreshCw } from 'lucide-react'
+import { Loader2, LockKeyhole, RefreshCw } from 'lucide-react'
+import Brand from './Brand'
 import { api, getBase, setBase, setToken } from '../lib/api'
 import type { CaptchaChallenge } from '../types'
 
@@ -51,9 +52,7 @@ export default function LoginView({ onLoggedIn }: { onLoggedIn: () => void }) {
     <div className="min-h-full bg-bg px-4 py-10 sm:grid sm:place-items-center">
       <div className="mx-auto w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center text-center">
-          <div className="mb-4 grid h-16 w-16 place-items-center rounded-2xl bg-accent-dim">
-            <Disc3 size={30} className="text-accent" />
-          </div>
+          <div className="mb-5"><Brand size={72} /></div>
           <h1 className="text-2xl font-semibold tracking-tight">MusicPlayer</h1>
           <p className="mt-1.5 text-sm text-muted">登录后进入你的私人曲库</p>
         </div>
@@ -94,7 +93,7 @@ export default function LoginView({ onLoggedIn }: { onLoggedIn: () => void }) {
           <button
             type="submit"
             disabled={busy || !challenge || !username.trim() || !password || captcha.length !== 5}
-            className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-accent py-3 text-sm font-medium text-white transition-colors hover:bg-accent-soft disabled:opacity-40"
+            className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-medium text-white transition-colors hover:bg-primary/85 disabled:opacity-40"
           >
             {busy && <Loader2 size={15} className="spin" />}{busy ? '验证中…' : '进入曲库'}
           </button>

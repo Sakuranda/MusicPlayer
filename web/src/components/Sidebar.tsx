@@ -1,4 +1,5 @@
-import { Disc3, Download, Library, Settings } from 'lucide-react'
+import { Download, Library, Settings } from 'lucide-react'
+import Brand from './Brand'
 import type { View } from '../App'
 
 interface Props {
@@ -17,12 +18,10 @@ export default function Sidebar({ view, setView, serverOk }: Props) {
   return (
     <aside className="fixed inset-x-0 top-0 z-40 h-16 shrink-0 border-b border-line bg-bg2/95 backdrop-blur-xl flex items-center md:static md:w-56 md:h-auto md:border-b-0 md:border-r md:bg-bg2 md:flex-col md:items-stretch">
       <div className="flex items-center gap-2.5 px-3 md:px-5 md:pt-6 md:pb-8">
-        <div className="w-9 h-9 rounded-xl bg-accent-dim flex items-center justify-center">
-          <Disc3 size={20} className="text-accent" />
-        </div>
+        <Brand />
         <div className="hidden sm:block">
-          <div className="font-semibold text-[15px] leading-tight tracking-tight">MusicPlayer</div>
-          <div className="text-[11px] text-faint">B站收藏夹曲库</div>
+          <div className="brand-name font-semibold text-[17px] leading-tight tracking-tight">MusicPlayer</div>
+          <div className="text-[11px] text-faint">你的私人音乐空间</div>
         </div>
       </div>
 
@@ -33,10 +32,11 @@ export default function Sidebar({ view, setView, serverOk }: Props) {
             <button
               key={key}
               onClick={() => setView(key)}
+              aria-current={active ? 'page' : undefined}
               className={[
                 'flex items-center gap-1.5 px-2.5 py-2.5 rounded-xl text-xs transition-colors text-left sm:text-sm md:gap-2.5 md:px-3',
                 active
-                  ? 'bg-panel text-ink font-medium'
+                  ? 'bg-accent-dim text-accent font-medium'
                   : 'text-muted hover:text-ink hover:bg-panel/60',
               ].join(' ')}
             >

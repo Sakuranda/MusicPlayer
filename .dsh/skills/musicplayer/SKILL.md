@@ -101,6 +101,8 @@ c.commit()"'
 
 - 2026-09-05 hmac.compare_digest 的 str 参数仅支持 ASCII，登录密码/验证码/签名/token 比较改用 UTF-8 bytes，避免恶意Unicode输入触发500；CSV导出对公式前缀加单引号，验证码缓存设上限；文档不再保存真实凭据（历史提交仍需另行轮换处理）。
 
+- 2026-09-05 移动端播放器需要safe-area与可见切歌按钮，展开页保留封面/歌名；封面组件不能定义在PlayerBar内部，否则每次timeupdate都会重新挂载图片。SVG品牌图同步生成iOS PNG图标，按钮背景与高亮文字分开设色保证对比度，开关滑块显式指定left基准。
+
 ## 验证清单（每次改动后）
 
 - [ ] 后端模块可导入（`from app.main import app`）

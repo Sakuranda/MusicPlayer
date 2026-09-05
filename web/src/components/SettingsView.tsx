@@ -165,7 +165,7 @@ export default function SettingsView({ onSaved, username, authEnabled, onLogout 
 
       <button
         onClick={save}
-        className="mt-6 px-5 py-3 rounded-xl bg-accent hover:bg-accent-soft text-white text-sm font-medium transition-colors"
+        className="mt-6 px-5 py-3 rounded-xl bg-primary hover:bg-primary/85 text-white text-sm font-medium transition-colors"
       >
         保存设置
       </button>

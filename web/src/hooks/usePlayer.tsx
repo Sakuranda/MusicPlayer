@@ -118,7 +118,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       if (typeof MediaMetadata !== 'undefined') {
         navigator.mediaSession.metadata = new MediaMetadata({
           title: song.title, artist: song.artist, album: song.album || 'MusicPlayer',
-          artwork: [{ src: new URL(cover || '/favicon.svg', window.location.href).href }],
+          artwork: [{ src: new URL(cover || '/icon-512.png', window.location.href).href }],
         })
       }
       try { navigator.mediaSession.setPositionState() } catch { /* unsupported */ }

@@ -449,7 +449,7 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
             <button
               onClick={submit}
               disabled={loading}
-              className="mt-6 flex items-center gap-2 px-5 py-3 rounded-xl bg-accent hover:bg-accent-soft text-white text-sm font-medium transition-colors disabled:opacity-50"
+              className="mt-6 flex items-center gap-2 px-5 py-3 rounded-xl bg-primary hover:bg-primary/85 text-white text-sm font-medium transition-colors disabled:opacity-50"
             >
               {loading ? <Loader2 size={16} className="spin" /> : <Download size={16} />}
               {loading ? '解析中…' : '解析收藏夹'}
@@ -655,7 +655,7 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
               <button
                 onClick={start}
                 disabled={starting}
-                className="flex items-center gap-2 px-5 py-3 rounded-xl bg-accent hover:bg-accent-soft text-white text-sm font-medium transition-colors disabled:opacity-40"
+                className="flex items-center gap-2 px-5 py-3 rounded-xl bg-primary hover:bg-primary/85 text-white text-sm font-medium transition-colors disabled:opacity-40"
               >
                 {starting ? <Loader2 size={16} className="spin" /> : <Download size={16} />}
                 下载选中的 {selected.size} 首
@@ -663,7 +663,7 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
             ) : (
               <button
                 onClick={onImported}
-                className="flex items-center gap-2 px-5 py-3 rounded-xl bg-accent hover:bg-accent-soft text-white text-sm font-medium transition-colors"
+                className="flex items-center gap-2 px-5 py-3 rounded-xl bg-primary hover:bg-primary/85 text-white text-sm font-medium transition-colors"
               >
                 <Check size={16} /> 没有新增歌曲，返回曲库
               </button>
@@ -697,7 +697,7 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
             </div>
             <div className="h-2 rounded-full bg-panel2 overflow-hidden">
               <div
-                className="h-full rounded-full bg-accent transition-all duration-500"
+                className="h-full rounded-full bg-primary transition-all duration-500"
                 style={{ width: `${pct}%` }}
               />
             </div>
@@ -741,7 +741,7 @@ export default function ImportView({ onImported, onViewLibrary }: Props) {
           <div className="flex items-center gap-3 mt-6">
             <button
               onClick={onViewLibrary}
-              className="flex items-center gap-2 px-5 py-3 rounded-xl bg-accent hover:bg-accent-soft text-white text-sm font-medium transition-colors"
+              className="flex items-center gap-2 px-5 py-3 rounded-xl bg-primary hover:bg-primary/85 text-white text-sm font-medium transition-colors"
             >
               <Play size={15} fill="currentColor" /> 前往曲库
             </button>

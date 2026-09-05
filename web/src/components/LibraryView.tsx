@@ -162,7 +162,7 @@ function PlaylistManager({
             maxLength={80}
             className="min-w-0 flex-1 rounded-xl border border-line bg-bg2 px-3 py-2.5 text-sm focus:border-accent/60 focus:outline-none"
           />
-          <button onClick={create} disabled={busy || !name.trim()} className="rounded-xl bg-accent px-4 text-sm font-medium text-white disabled:opacity-40">
+          <button onClick={create} disabled={busy || !name.trim()} className="rounded-xl bg-primary px-4 text-sm font-medium text-white disabled:opacity-40">
             创建
           </button>
         </div>
@@ -452,7 +452,7 @@ function EditModal({
           <button
             onClick={save}
             disabled={saving}
-            className="px-4 py-2.5 rounded-xl bg-accent hover:bg-accent-soft text-white text-sm font-medium transition-colors disabled:opacity-50"
+            className="px-4 py-2.5 rounded-xl bg-primary hover:bg-primary/85 text-white text-sm font-medium transition-colors disabled:opacity-50"
           >
             {saving ? '保存中…' : '保存'}
           </button>
@@ -661,17 +661,23 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
 
   return (
     <div className="max-w-6xl mx-auto px-4 pt-6 sm:px-6 md:px-8 md:pt-10">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between mb-8">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight mb-1.5">曲库</h1>
+      <div className="flex flex-col">
+        <div className="library-heading flex items-end justify-between gap-4">
+          <div>
+          <p className="mb-2 text-xs font-medium tracking-[.15em] text-accent">MusicPlayer / 私人收藏</p>
+          <h1 className="text-3xl sm:text-[42px] font-semibold tracking-tight mb-2">我的曲库</h1>
           <p className="text-sm text-muted">
             {selectedPlaylist === 'all' && selectedCollection === 'all'
               ? `${ready.length} 首歌曲`
               : `${filtered.length} 首筛选结果`}
             {others.length > 0 ? ` · ${others.length} 首处理中/失败` : ''}
           </p>
+          </div>
+          <button onClick={onGoImport} className="hidden sm:flex items-center gap-2 rounded-full border border-line px-4 py-2.5 text-sm text-muted hover:text-ink hover:border-accent/50">
+            <Download size={16} /> 添加收藏
+          </button>
         </div>
-        <div className="flex flex-col items-stretch gap-2 sm:items-end">
+        <div className="library-toolbar flex flex-col items-stretch gap-3">
           <div className="inline-flex self-end items-center gap-1 rounded-xl border border-line bg-panel p-1">
             <span className="pl-2 pr-1 text-[11px] text-muted">封面</span>
             <button
@@ -685,8 +691,8 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
               title={showCovers ? '隐藏歌曲封面' : '显示歌曲封面'}
             >
               <span
-                className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
-                  showCovers ? 'translate-x-[18px]' : 'translate-x-0.5'
+                className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+                  showCovers ? 'translate-x-4' : 'translate-x-0'
                 }`}
               />
             </button>
@@ -714,7 +720,7 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
               <List size={13} /> 列表
             </button>
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <select
               value={selectedCollection}
               onChange={(e) => setSelectedCollection(e.target.value === 'all' ? 'all' : Number(e.target.value))}
@@ -775,7 +781,7 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
             <button
               onClick={() => playQueue(filtered)}
               disabled={!filtered.length}
-              className="flex shrink-0 items-center gap-2 px-4 py-2.5 rounded-xl bg-accent hover:bg-accent-soft text-white text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex shrink-0 items-center gap-2 px-4 py-2.5 rounded-xl bg-primary hover:bg-primary/85 text-white text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Play size={15} fill="currentColor" /> 播放全部
             </button>
@@ -801,7 +807,7 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
           </p>
           <button
             onClick={onGoImport}
-            className="flex items-center gap-2 px-5 py-3 rounded-xl bg-accent hover:bg-accent-soft text-white text-sm font-medium transition-colors"
+            className="flex items-center gap-2 px-5 py-3 rounded-xl bg-primary hover:bg-primary/85 text-white text-sm font-medium transition-colors"
           >
             <Download size={16} /> 导入第一个收藏夹
           </button>
@@ -812,7 +818,7 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
             <div
               className={
                 layout === 'grid'
-                  ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4'
+                  ? 'grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-5'
                   : 'space-y-1.5'
               }
             >
@@ -851,7 +857,7 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
                         <div className="flex items-center gap-2">
                           <span className="truncate text-sm font-medium" title={song.title}>{song.title}</span>
                           {isCurrent && (
-                            <span className="shrink-0 rounded-full bg-accent px-1.5 py-0.5 text-[9px] font-medium text-white">
+                            <span className="shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[9px] font-medium text-white">
                               {playing ? '播放中' : '已暂停'}
                             </span>
                           )}
@@ -901,7 +907,7 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
                           </span>
                         </span>
                         {isCurrent && (
-                          <span className="absolute right-2 top-2 rounded-full bg-accent px-2 py-0.5 text-[10px] font-medium text-white">
+                          <span className="absolute right-2 top-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-medium text-white">
                             {playing ? '播放中' : '已暂停'}
                           </span>
                         )}
@@ -914,7 +920,7 @@ export default function LibraryView({ songs, serverOk, onRefresh, onGoImport }: 
                             {song.title}
                           </div>
                           {!showCovers && isCurrent && (
-                            <span className="shrink-0 rounded-full bg-accent px-1.5 py-0.5 text-[9px] font-medium text-white">
+                            <span className="shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[9px] font-medium text-white">
                               {playing ? '播放中' : '已暂停'}
                             </span>
                           )}

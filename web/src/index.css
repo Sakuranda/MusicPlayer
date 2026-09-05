@@ -1,19 +1,20 @@
 @import "tailwindcss";
 
 @theme {
-  /* Claude 风格暖色调深色主题 */
-  --color-bg: #141412;
-  --color-bg2: #1a1916;
-  --color-panel: #211f1b;
-  --color-panel2: #2a2721;
-  --color-line: #33302a;
-  --color-ink: #f0eee6;
-  --color-muted: #9c968a;
-  --color-faint: #6d685e;
-  --color-accent: #d97757;
-  --color-accent-soft: #e08b6e;
-  --color-accent-dim: rgba(217, 119, 87, 0.14);
-  --color-danger: #e5634f;
+  /* Midnight listening room: cool surfaces, quiet lavender highlights. */
+  --color-bg: #111827;
+  --color-bg2: #151e30;
+  --color-panel: #1b263b;
+  --color-panel2: #25324a;
+  --color-line: #33415a;
+  --color-ink: #f1f4fc;
+  --color-muted: #b3bfd3;
+  --color-faint: #8c9db7;
+  --color-accent: #b6a5ff;
+  --color-accent-soft: #cebdff;
+  --color-accent-dim: rgba(182, 165, 255, 0.12);
+  --color-primary: #7355cc;
+  --color-danger: #ff938d;
 
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
     "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC",
@@ -34,8 +35,8 @@ body {
 
 /* 细腻滚动条 */
 *::-webkit-scrollbar { width: 8px; height: 8px; }
-*::-webkit-scrollbar-thumb { background: #3a362f; border-radius: 8px; }
-*::-webkit-scrollbar-thumb:hover { background: #4a453c; }
+*::-webkit-scrollbar-thumb { background: #33415a; border-radius: 8px; }
+*::-webkit-scrollbar-thumb:hover { background: #465773; }
 *::-webkit-scrollbar-track { background: transparent; }
 
 /* 进度条滑块 */
@@ -48,7 +49,7 @@ input[type="range"] {
 input[type="range"]::-webkit-slider-runnable-track {
   height: 4px;
   border-radius: 4px;
-  background: var(--range-bg, #3a362f);
+  background: var(--range-bg, #33415a);
 }
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
@@ -117,4 +118,31 @@ input[type="range"]:hover::-webkit-slider-thumb { opacity: 1; }
   .hover-lift:hover {
     transform: none;
   }
+}
+
+/* Display type echoes the rounded waveform monogram; UI stays native on iOS. */
+h1, .brand-name { font-family: "Avenir Next", "SF Pro Display", "PingFang SC", sans-serif; }
+button, a, input, select { -webkit-tap-highlight-color: transparent; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 3px; }
+::selection { background: var(--color-accent); color: var(--color-bg); }
+.library-heading { border-bottom: 1px solid var(--color-line); padding-bottom: 28px; }
+.library-toolbar { padding: 18px 0 24px; }
+.player-dock { padding-bottom: env(safe-area-inset-bottom, 0px); }
+.player-full { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+.now-artwork { box-shadow: 0 20px 70px #080c1880; }
+input[type="range"] { min-height: 28px; touch-action: pan-y; }
+input[type="range"]::-moz-range-track { height: 4px; border-radius: 4px; background: var(--range-bg, var(--color-line)); }
+input[type="range"]::-moz-range-thumb { border: 0; width: 12px; height: 12px; border-radius: 50%; background: var(--color-accent); }
+@media (pointer: coarse) {
+  input[type="range"]::-webkit-slider-thumb { opacity: 1; }
+}
+@media (max-width: 767px) {
+  input:not([type="range"]), select { font-size: 16px; }
+  .library-song-card { contain-intrinsic-size: auto 260px; }
+  .player-full { height: 100dvh; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0s !important; }
 }
