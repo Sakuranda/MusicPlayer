@@ -24,6 +24,7 @@ export default function PlayerBar() {
   const {
     current,
     playing,
+    playbackError,
     time,
     duration,
     volume,
@@ -51,6 +52,7 @@ export default function PlayerBar() {
       setLyrics(null)
       return
     }
+    setLyrics(null)
     let alive = true
     api.song(currentId)
       .then((s) => alive && setLyrics(s.lrc || s.lyrics || null))
@@ -117,6 +119,9 @@ export default function PlayerBar() {
 
   return (
     <>
+      {playbackError && <div role="alert" className="fixed bottom-24 inset-x-4 z-[60] mx-auto max-w-lg rounded-xl border border-danger/30 bg-panel p-3 text-sm text-ink shadow-xl">
+        {playbackError}<button onClick={toggle} className="ml-2 text-accent underline">重试</button>
+      </div>}
       {/* 底部播放条 */}
       <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-line bg-bg2/90 backdrop-blur-xl">
         <div className="max-w-[1400px] mx-auto px-3 sm:px-4 h-[76px] flex items-center gap-2 sm:gap-4">

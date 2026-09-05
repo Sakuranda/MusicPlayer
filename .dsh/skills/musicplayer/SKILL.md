@@ -97,6 +97,8 @@ c.commit()"'
 
 - 2026-09-05 B站 DASH 直连文件仍可能是 moof 分片容器（Mutagen 时长为零），仅改后缀/写标签不能保证 iOS 连续播放；入库前无损 remux 为 faststart M4A、逐包哈希校验并原子替换，历史修复先备份。时长必须以实际音轨为准，不能保留多 P 视频总时长。
 
+- 2026-09-05 iOS后台媒体事件不能依赖React effect刷新队列/metadata；使用同步ref游标、稳定Media Session handler与音频事件同步状态，异常ended不跳歌、旧play Promise不得覆盖新曲。仅注册切歌和seekto，释放快进/快退按钮；曲库暂时刷新失败不可卸载PlayerProvider。
+
 ## 验证清单（每次改动后）
 
 - [ ] 后端模块可导入（`from app.main import app`）

@@ -7,6 +7,7 @@ export interface PlayerState {
   current: Song | null
   queue: Song[]
   playing: boolean
+  playbackError: string | null
   time: number
   duration: number
   volume: number

@@ -16,6 +16,7 @@ export default function App() {
   const [songs, setSongs] = useState<Song[]>([])
   const [serverOk, setServerOk] = useState<boolean | null>(null)
   const [auth, setAuth] = useState<AuthStatus | null>(null)
+  const [loadError, setLoadError] = useState('')
   const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
@@ -34,8 +35,8 @@ export default function App() {
       })
       .catch(() => {
         if (!alive) return
-        setServerOk(false)
-        setAuth(null)
+        setServerOk((previous) => previous === null ? false : previous)
+        setLoadError('服务器暂时不可用，可以稍后重试。')
       })
     return () => { alive = false }
   }, [refreshKey])
@@ -44,8 +45,8 @@ export default function App() {
     if (!serverOk || !auth?.authenticated) return
     let alive = true
     api.songs()
-      .then((s) => alive && setSongs(s))
-      .catch(() => alive && setServerOk(false))
+      .then((s) => { if (alive) { setSongs(s); setLoadError('') } })
+      .catch((error) => { if (alive) setLoadError(error instanceof Error ? error.message : '曲库刷新失败') })
     return () => { alive = false }
   }, [serverOk, auth?.authenticated, refreshKey])
 
@@ -66,6 +67,9 @@ export default function App() {
       <div className="flex h-full flex-col md:flex-row">
         <Sidebar view={view} setView={setView} serverOk={serverOk} />
         <main className="flex-1 min-w-0 overflow-y-auto pt-16 pb-28 md:pt-0">
+          {loadError && <div role="alert" className="mx-4 mt-4 rounded-xl border border-danger/30 bg-panel p-3 text-sm text-danger">
+            {loadError}<button className="ml-3 underline" onClick={() => setRefreshKey((key) => key + 1)}>重试</button>
+          </div>}
           {view === 'library' && (
             <LibraryView
               songs={songs}

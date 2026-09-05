@@ -28,11 +28,18 @@ function initialPlaybackMode(): PlaybackMode {
 
 export function PlayerProvider({ children }: { children: ReactNode }) {
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  // Native audio and lock-screen events must advance immediately even when React
+  // effects are deferred in the background. This is the authoritative cursor.
+  const playbackRef = useRef<{ queue: Song[]; index: number; current: Song | null; mode: PlaybackMode }>({
+    queue: [], index: -1, current: null, mode: initialPlaybackMode(),
+  })
+  const generationRef = useRef(0)
+  const resumeAtRef = useRef<number | null>(null)
+  const [playbackError, setPlaybackError] = useState<string | null>(null)
   const sourceQueueRef = useRef<Song[]>([])
   const lastShuffleStartIdRef = useRef<number | null>(null)
   const lastShuffleSignatureRef = useRef('')
   const [queue, setQueue] = useState<Song[]>([])
-  const [index, setIndex] = useState(-1)
   const [current, setCurrent] = useState<Song | null>(null)
   const [playing, setPlaying] = useState(false)
   const [time, setTime] = useState(0)
@@ -44,14 +51,37 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   // 创建音频元素并绑定基础事件（只执行一次）
   useEffect(() => {
     const a = new Audio()
-    a.preload = 'metadata'
+    a.preload = 'auto'
     a.volume = 0.8
     audioRef.current = a
-    const onTime = () => setTime(a.currentTime)
-    const onDur = () => setDuration(a.duration || 0)
-    const onPlay = () => setPlaying(true)
-    const onPause = () => setPlaying(false)
-    const onError = () => setPlaying(false)
+    const syncSession = () => {
+      if (!('mediaSession' in navigator)) return
+      navigator.mediaSession.playbackState = !playbackRef.current.current
+        ? 'none' : a.paused ? 'paused' : 'playing'
+      try {
+        if (Number.isFinite(a.duration) && a.duration > 0) {
+          navigator.mediaSession.setPositionState({ duration: a.duration,
+            position: Math.min(Math.max(a.currentTime, 0), a.duration), playbackRate: a.playbackRate || 1 })
+        } else navigator.mediaSession.setPositionState()
+      } catch { /* older Safari */ }
+    }
+    const onTime = () => { setTime(a.currentTime); syncSession() }
+    const onDur = () => { setDuration(Number.isFinite(a.duration) ? a.duration : 0); syncSession() }
+    const onPlay = () => { setPlaying(true); setPlaybackError(null); syncSession() }
+    const onPause = () => { setPlaying(false); syncSession() }
+    const onError = () => {
+      setPlaying(false)
+      setPlaybackError('音频加载失败，点击播放重试；若持续失败，请重新登录或检查音频文件。')
+      syncSession()
+    }
+    const onMetadata = () => {
+      if (resumeAtRef.current !== null && Number.isFinite(a.duration)) {
+        a.currentTime = Math.min(resumeAtRef.current, Math.max(0, a.duration - .1))
+        resumeAtRef.current = null
+      }
+      onDur()
+    }
+    a.addEventListener('loadedmetadata', onMetadata)
     a.addEventListener('timeupdate', onTime)
     a.addEventListener('durationchange', onDur)
     a.addEventListener('play', onPlay)
@@ -59,6 +89,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     a.addEventListener('error', onError)
     return () => {
       a.pause()
+      generationRef.current += 1
+      a.removeEventListener('loadedmetadata', onMetadata)
       a.removeEventListener('timeupdate', onTime)
       a.removeEventListener('durationchange', onDur)
       a.removeEventListener('play', onPlay)
@@ -72,13 +104,31 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const start = useCallback((song: Song, songs: Song[], i: number) => {
     const a = audioRef.current
     if (!a) return
+    playbackRef.current = { ...playbackRef.current, queue: songs, index: i, current: song }
+    const generation = ++generationRef.current
+    resumeAtRef.current = null
+    setPlaybackError(null)
     setQueue(songs)
-    setIndex(i)
     setCurrent(song)
     setTime(0)
     setDuration(song.duration || 0)
+    document.title = `${song.title} — ${song.artist}`
+    if ('mediaSession' in navigator) {
+      const cover = api.coverUrl(song)
+      if (typeof MediaMetadata !== 'undefined') {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: song.title, artist: song.artist, album: song.album || 'MusicPlayer',
+          artwork: [{ src: new URL(cover || '/favicon.svg', window.location.href).href }],
+        })
+      }
+      try { navigator.mediaSession.setPositionState() } catch { /* unsupported */ }
+    }
     a.src = api.streamUrl(song.id)
-    a.play().catch(() => setPlaying(false))
+    a.play().catch(() => {
+      if (generation !== generationRef.current) return
+      setPlaying(false)
+      setPlaybackError('播放未能启动，点击播放重试。')
+    })
   }, [])
 
   const buildShuffleQueue = useCallback((songs: Song[], leading?: Song, avoidStartId?: number) => {
@@ -107,42 +157,39 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     return shuffled
   }, [])
 
-  // 播放结束自动切下一首（依赖 queue/index 重新绑定）
-  useEffect(() => {
+  const resume = useCallback(() => {
+    const a = audioRef.current
+    if (!a || !playbackRef.current.current) return
+    const generation = generationRef.current
+    if (a.error || (a.ended && Number.isFinite(a.duration) && a.currentTime + 1 < a.duration)) {
+      resumeAtRef.current = a.currentTime
+      a.load()
+    }
+    a.play().catch(() => {
+      if (generation !== generationRef.current) return
+      setPlaying(false)
+      setPlaybackError('播放未能启动，点击播放重试。')
+    })
+  }, [])
+
+  const toggle = useCallback(() => {
     const a = audioRef.current
     if (!a) return
-    const onEnded = () => {
-      if (queue.length === 0) {
-        setPlaying(false)
-        return
-      }
-      if (playbackMode === 'one') {
-        a.currentTime = 0
-        a.play().catch(() => setPlaying(false))
-        return
-      }
-      if (playbackMode === 'shuffle' && index === queue.length - 1 && queue.length > 1) {
-        const sourceQueue = sourceQueueRef.current.length ? sourceQueueRef.current : queue
-        const shuffled = buildShuffleQueue(sourceQueue, undefined, queue[index].id)
-        start(shuffled[0], shuffled, 0)
-        return
-      }
-      const n = (index + 1) % queue.length
-      start(queue[n], queue, n)
-    }
-    a.addEventListener('ended', onEnded)
-    return () => a.removeEventListener('ended', onEnded)
-  }, [buildShuffleQueue, queue, index, playbackMode, start])
+    if (a.paused) resume()
+    else a.pause()
+  }, [resume])
 
   const playSong = useCallback((song: Song, songs?: Song[]) => {
     const a = audioRef.current
     if (!a) return
+    const { current, queue, mode: playbackMode } = playbackRef.current
     if (current?.id === song.id) {
-      if (a.paused) a.play().catch(() => {})
+      if (a.paused) resume()
       else a.pause()
       return
     }
-    const q = songs && songs.length ? songs : queue.length ? queue : [song]
+    const candidates = songs && songs.length ? songs : queue.length ? queue : [song]
+    const q = candidates.some((item) => item.id === song.id) ? candidates : [...candidates, song]
     sourceQueueRef.current = q
     if (playbackMode === 'shuffle') {
       const shuffled = buildShuffleQueue(q, song)
@@ -151,10 +198,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
     const i = Math.max(0, q.findIndex((item) => item.id === song.id))
     start(song, q, i)
-  }, [buildShuffleQueue, current, playbackMode, queue, start])
+  }, [buildShuffleQueue, resume, start])
 
   const playQueue = useCallback((songs: Song[], i = 0) => {
     if (!songs.length) return
+    const playbackMode = playbackRef.current.mode
+    i = Math.min(Math.max(Number.isFinite(i) ? Math.floor(i) : 0, 0), songs.length - 1)
     sourceQueueRef.current = songs
     if (playbackMode === 'shuffle') {
       const shuffled = buildShuffleQueue(songs)
@@ -162,16 +211,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       return
     }
     start(songs[i], songs, i)
-  }, [buildShuffleQueue, playbackMode, start])
-
-  const toggle = useCallback(() => {
-    const a = audioRef.current
-    if (!a) return
-    if (a.paused) a.play().catch(() => {})
-    else a.pause()
-  }, [])
+  }, [buildShuffleQueue, start])
 
   const next = useCallback(() => {
+    const { queue, index, mode: playbackMode } = playbackRef.current
     if (!queue.length) return
     if (playbackMode === 'shuffle' && index === queue.length - 1 && queue.length > 1) {
       const sourceQueue = sourceQueueRef.current.length ? sourceQueueRef.current : queue
@@ -181,17 +224,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
     const n = (index + 1) % queue.length
     start(queue[n], queue, n)
-  }, [buildShuffleQueue, queue, index, playbackMode, start])
+  }, [buildShuffleQueue, start])
 
   // 系统级“上一曲”必须确实切换歌曲；播放器 UI 的 prev 仍保留播放超过
   // 3 秒时先回到本曲开头的常见交互。
   const previousTrack = useCallback(() => {
+    const { queue, index } = playbackRef.current
     if (!queue.length) return
     const n = (index - 1 + queue.length) % queue.length
     start(queue[n], queue, n)
-  }, [queue, index, start])
+  }, [start])
 
   const prev = useCallback(() => {
+    const { queue, index } = playbackRef.current
     const a = audioRef.current
     if (!queue.length) return
     if (a && a.currentTime > 3) {
@@ -201,28 +246,48 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
     const n = (index - 1 + queue.length) % queue.length
     start(queue[n], queue, n)
-  }, [queue, index, start])
+  }, [start])
 
-  // Media Session 的处理器只注册一次；通过 ref 读取最新队列，避免切歌时先撤销
-  // 系统按键处理器、再重新注册所产生的短暂媒体焦点空档。
-  const mediaTrackHandlersRef = useRef({ next, previousTrack })
   useEffect(() => {
-    mediaTrackHandlersRef.current = { next, previousTrack }
-  }, [next, previousTrack])
+    const a = audioRef.current
+    if (!a) return
+    const onEnded = () => {
+      // Ignore delayed/duplicate events from an old source, and never silently
+      // skip a track when a broken stream reports an early end.
+      if (!a.ended || !playbackRef.current.current) return
+      if (!Number.isFinite(a.duration) || a.duration <= 0 || a.currentTime + 1 < a.duration) {
+        a.pause()
+        setPlaying(false)
+        setPlaybackError('音频意外中断，点击播放重试。')
+        return
+      }
+      if (playbackRef.current.mode === 'one') {
+        a.currentTime = 0
+        resume()
+      } else next()
+    }
+    a.addEventListener('ended', onEnded)
+    return () => a.removeEventListener('ended', onEnded)
+  }, [next, resume])
 
   const seek = useCallback((t: number) => {
     const a = audioRef.current
-    if (!a) return
-    a.currentTime = t
-    setTime(t)
+    if (!a || !Number.isFinite(t) || !Number.isFinite(a.duration) || a.duration <= 0) return
+    const target = Math.min(Math.max(t, 0), a.duration)
+    a.currentTime = target
+    setTime(target)
   }, [])
 
   const setVolume = useCallback((v: number) => {
+    if (!Number.isFinite(v)) return
+    v = Math.min(Math.max(v, 0), 1)
     setVolumeState(v)
     if (audioRef.current) audioRef.current.volume = v
   }, [])
 
   const setPlaybackMode = useCallback((mode: PlaybackMode) => {
+    const { current, queue } = playbackRef.current
+    playbackRef.current.mode = mode
     setPlaybackModeState(mode)
     localStorage.setItem(PLAYBACK_MODE_KEY, mode)
     if (!current || !queue.length) return
@@ -231,38 +296,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const nextQueue = mode === 'shuffle'
       ? buildShuffleQueue(sourceQueue, current)
       : sourceQueue
+    const nextIndex = Math.max(0, nextQueue.findIndex((song) => song.id === current.id))
+    playbackRef.current.queue = nextQueue
+    playbackRef.current.index = nextIndex
     setQueue(nextQueue)
-    setIndex(Math.max(0, nextQueue.findIndex((song) => song.id === current.id)))
-  }, [buildShuffleQueue, current, queue])
-
-  // 向 macOS 控制中心/媒体键和 iOS 锁屏提供歌曲信息与系统控制。
-  useEffect(() => {
-    if (!current) {
-      document.title = DEFAULT_DOCUMENT_TITLE
-      if ('mediaSession' in navigator) {
-        navigator.mediaSession.metadata = null
-        navigator.mediaSession.playbackState = 'none'
-        try { navigator.mediaSession.setPositionState() } catch { /* unsupported */ }
-      }
-      return
-    }
-
-    document.title = `${current.title} — ${current.artist}`
-    if (!('mediaSession' in navigator)) return
-    const mediaSession = navigator.mediaSession
-    const cover = api.coverUrl(current)
-    const artwork = cover
-      ? [{ src: new URL(cover, window.location.href).href, sizes: '320x320', type: 'image/jpeg' }]
-      : []
-    if (typeof MediaMetadata !== 'undefined') {
-      mediaSession.metadata = new MediaMetadata({
-        title: current.title,
-        artist: current.artist,
-        album: current.album || 'MusicPlayer',
-        artwork,
-      })
-    }
-  }, [current])
+  }, [buildShuffleQueue])
 
   // 切换 current 也会执行依赖 effect 的 cleanup，因此媒体会话只能在 Provider
   // 真正卸载时清空。否则 macOS 会在两首歌之间短暂切到其他播放器。
@@ -276,58 +314,25 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!('mediaSession' in navigator)) return
-    navigator.mediaSession.playbackState = current
-      ? (playing ? 'playing' : 'paused')
-      : 'none'
-  }, [current, playing])
-
-  useEffect(() => {
-    if (!('mediaSession' in navigator)) return
-    const a = audioRef.current
-    if (!a || !current || !Number.isFinite(duration) || duration <= 0) return
-    try {
-      navigator.mediaSession.setPositionState({
-        duration,
-        playbackRate: a.playbackRate || 1,
-        position: Math.min(Math.max(time, 0), duration),
-      })
-    } catch {
-      // Safari 旧版本可能暴露 mediaSession 但尚未实现位置状态。
-    }
-  }, [current, duration, time])
-
-  useEffect(() => {
-    if (!('mediaSession' in navigator)) return
     const mediaSession = navigator.mediaSession
     const a = audioRef.current
-    const setHandler = (action: MediaSessionAction, handler: MediaSessionActionHandler) => {
+    const setHandler = (action: MediaSessionAction, handler: MediaSessionActionHandler | null) => {
       try {
         mediaSession.setActionHandler(action, handler)
       } catch {
         // WebKit/Chrome 版本支持的 action 集合不同，逐项失败不能影响其他按键。
       }
     }
-    const seekBy = (offset: number) => {
-      if (!a || !Number.isFinite(a.duration)) return
-      const target = Math.min(Math.max(a.currentTime + offset, 0), a.duration)
-      a.currentTime = target
-      setTime(target)
-    }
-
-    setHandler('play', () => a?.play().catch(() => setPlaying(false)))
+    setHandler('play', resume)
     setHandler('pause', () => a?.pause())
-    setHandler('nexttrack', () => mediaTrackHandlersRef.current.next())
-    setHandler('previoustrack', () => mediaTrackHandlersRef.current.previousTrack())
-    setHandler('seekbackward', (details) => seekBy(-(details.seekOffset || 10)))
-    setHandler('seekforward', (details) => seekBy(details.seekOffset || 10))
+    setHandler('nexttrack', next)
+    setHandler('previoustrack', previousTrack)
+    // iOS has limited lock-screen button slots. Advertise track navigation,
+    // keep scrubbing via seekto, and do not claim podcast-style skip controls.
+    setHandler('seekbackward', null)
+    setHandler('seekforward', null)
     setHandler('seekto', (details) => {
-      if (!a || details.seekTime == null) return
-      const target = Number.isFinite(a.duration)
-        ? Math.min(Math.max(details.seekTime, 0), a.duration)
-        : Math.max(details.seekTime, 0)
-      if (details.fastSeek && typeof a.fastSeek === 'function') a.fastSeek(target)
-      else a.currentTime = target
-      setTime(target)
+      if (details.seekTime != null) seek(details.seekTime)
     })
     setHandler('stop', () => {
       if (!a) return
@@ -344,7 +349,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         try { mediaSession.setActionHandler(action, null) } catch { /* unsupported */ }
       }
     }
-  }, [])
+  }, [next, previousTrack, resume, seek])
 
   return (
     <PlayerContext.Provider
@@ -352,6 +357,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         current,
         queue,
         playing,
+        playbackError,
         time,
         duration,
         volume,
