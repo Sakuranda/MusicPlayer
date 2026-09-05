@@ -142,6 +142,8 @@ input[type="range"]::-moz-range-thumb { border: 0; width: 12px; height: 12px; bo
   input:not([type="range"]), select { font-size: 16px; }
   .library-song-card { contain-intrinsic-size: auto 260px; }
   .player-full { height: 100dvh; }
+  .app-navigation { padding-top: env(safe-area-inset-top, 0px); height: calc(4rem + env(safe-area-inset-top, 0px)); }
+  .app-content { padding-top: calc(4rem + env(safe-area-inset-top, 0px)); padding-bottom: calc(7rem + env(safe-area-inset-bottom, 0px)); }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0s !important; }

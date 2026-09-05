@@ -16,7 +16,7 @@ const items: { key: View; label: string; icon: typeof Library }[] = [
 
 export default function Sidebar({ view, setView, serverOk }: Props) {
   return (
-    <aside className="fixed inset-x-0 top-0 z-40 h-16 shrink-0 border-b border-line bg-bg2/95 backdrop-blur-xl flex items-center md:static md:w-56 md:h-auto md:border-b-0 md:border-r md:bg-bg2 md:flex-col md:items-stretch">
+    <aside className="app-navigation fixed inset-x-0 top-0 z-40 h-16 shrink-0 border-b border-line bg-bg2/95 backdrop-blur-xl flex items-center md:static md:w-56 md:h-auto md:border-b-0 md:border-r md:bg-bg2 md:flex-col md:items-stretch">
       <div className="flex items-center gap-2.5 px-3 md:px-5 md:pt-6 md:pb-8">
         <Brand />
         <div className="hidden sm:block">

@@ -122,6 +122,8 @@ API Token：`YOUR_API_TOKEN`（服务器 deploy/.env 内）。Navidrome：sakura
 
 - 2026-09-05 移动端播放器需要safe-area与可见切歌按钮，展开页保留封面/歌名；封面组件不能定义在PlayerBar内部，否则每次timeupdate都会重新挂载图片。SVG品牌图同步生成iOS PNG图标，按钮背景与高亮文字分开设色保证对比度，开关滑块显式指定left基准。
 
+- 2026-09-05 启用viewport-fit=cover后，顶部固定导航与主内容偏移也必须加入safe-area-inset-top，不能只给底部播放器和展开页加安全区，否则iPhone主屏幕模式会遮挡导航。
+
 ## 维护规则
 
 1. 每次修 bug / 加功能：把教训追加到本文件「踩坑记录」和 `.dsh/skills/musicplayer/SKILL.md` 的「历史踩坑」，再提交

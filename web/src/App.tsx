@@ -66,7 +66,7 @@ export default function App() {
     <PlayerProvider>
       <div className="flex h-full flex-col md:flex-row">
         <Sidebar view={view} setView={setView} serverOk={serverOk} />
-        <main className="flex-1 min-w-0 overflow-y-auto pt-16 pb-28 md:pt-0">
+        <main className="app-content flex-1 min-w-0 overflow-y-auto pt-16 pb-28 md:pt-0">
           {loadError && <div role="alert" className="mx-4 mt-4 rounded-xl border border-danger/30 bg-panel p-3 text-sm text-danger">
             {loadError}<button className="ml-3 underline" onClick={() => setRefreshKey((key) => key + 1)}>重试</button>
           </div>}
