@@ -78,7 +78,7 @@ async def authentication_guard(request: Request, call_next):
     """网页会话为主，API Token 作为脚本与旧客户端兼容通道。"""
     session = auth_service.verify_session(request.cookies.get(auth_service.COOKIE_NAME))
     token = request.headers.get("X-Api-Token") or request.query_params.get("token")
-    token_valid = bool(API_TOKEN and token and secrets.compare_digest(token, API_TOKEN))
+    token_valid = bool(API_TOKEN and token and secrets.compare_digest(token.encode(), API_TOKEN.encode()))
     request.state.auth = session
     request.state.token_authenticated = token_valid
 
@@ -329,6 +329,13 @@ def songs(status: str | None = None):
     return list_songs(conn, status=status)
 
 
+def _csv_cell(value):
+    # Spreadsheet import must treat externally supplied song metadata as text.
+    if isinstance(value, str) and value.lstrip().startswith(('=', '+', '-', '@')):
+        return "'" + value
+    return value
+
+
 @app.get("/api/export.csv")
 def export_csv():
     """导出全曲库为 CSV（含 B 站视频链接），方便备份与去重核对。"""
@@ -338,12 +345,12 @@ def export_csv():
     w = csv.writer(buf)
     w.writerow(["id", "歌曲名", "歌手", "专辑", "bvid", "B站视频链接", "分P", "时长(秒)", "状态", "歌词来源"])
     for s in all_songs:
-        w.writerow([
+        w.writerow([_csv_cell(value) for value in [
             s["id"], s["title"], s["artist"], s.get("album") or "",
             s["bvid"], s.get("source_url") or f"https://www.bilibili.com/video/{s['bvid']}",
             s.get("part_index") or 1, s.get("duration") or "", s["status"],
             s.get("lyrics_source") or "",
-        ])
+        ]])
     # UTF-8 BOM，Excel 打开中文不乱码
     return Response(
         content=("\ufeff" + buf.getvalue()).encode("utf-8"),

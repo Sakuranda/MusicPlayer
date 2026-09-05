@@ -234,3 +234,5 @@ curl -r 0-100000 "$BASE/api/stream/149?token=$TOKEN" -o /dev/null
 ```
 
 音频端点 `GET/HEAD /api/stream/{sid}` 支持 HTTP Range（206 / 416），使用 `Content-Disposition: inline` 和私有缓存重新验证；会话或 API Token 鉴权同其他受保护端点。
+
+CSV 导出会在可能被 Excel 等解释为公式的文本前加单引号（`=`, `+`, `-`, `@`，包括前导空白），曲库原始文本不变。不要把真实 API Token 或客户端密码写入文档；从部署环境或密码管理器读取。

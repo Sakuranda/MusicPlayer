@@ -55,15 +55,17 @@ def create_session(username: str) -> tuple[str, str]:
 
 
 def verify_session(token: str | None) -> dict | None:
-    if not token or "." not in token:
+    if not token or len(token) > 4096 or "." not in token:
         return None
     payload, signature = token.rsplit(".", 1)
     expected = _b64(hmac.new(_secret, payload.encode(), hashlib.sha256).digest())
-    if not hmac.compare_digest(signature, expected):
+    if not hmac.compare_digest(signature.encode(), expected.encode()):
         return None
     try:
         data = json.loads(_unb64(payload))
     except (ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("exp"), (int, float)):
         return None
     if data.get("exp", 0) < time.time() or not data.get("sid") or not data.get("sub"):
         return None
@@ -79,6 +81,8 @@ def create_captcha() -> dict:
         for key, (_, expires) in list(_captchas.items()):
             if expires < now_ts:
                 _captchas.pop(key, None)
+        if len(_captchas) >= 512:
+            _captchas.pop(next(iter(_captchas)))
         _captchas[challenge_id] = (answer, now_ts + CAPTCHA_TTL)
 
     image = Image.new("RGB", (150, 52), (33, 31, 27))
@@ -101,7 +105,7 @@ def create_captcha() -> dict:
 def consume_captcha(challenge_id: str, answer: str) -> bool:
     with _lock:
         stored = _captchas.pop(challenge_id, None)
-    return bool(stored and stored[1] >= time.time() and hmac.compare_digest(stored[0], answer.strip().upper()))
+    return bool(stored and stored[1] >= time.time() and hmac.compare_digest(stored[0].encode(), answer.strip().upper().encode()))
 
 
 def login_allowed(ip: str) -> tuple[bool, int]:
@@ -135,7 +139,7 @@ def clear_failures(ip: str) -> None:
 
 
 def credentials_valid(username: str, password: str) -> bool:
-    return hmac.compare_digest(username, ADMIN_USERNAME) and hmac.compare_digest(password, ADMIN_PASSWORD)
+    return hmac.compare_digest(username.encode(), ADMIN_USERNAME.encode()) and hmac.compare_digest(password.encode(), ADMIN_PASSWORD.encode())
 
 
 def client_ip(peer: str | None, forwarded_for: str | None) -> str:

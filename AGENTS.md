@@ -64,7 +64,7 @@ ssh hk 'docker exec musicplayer-api python -c "..."'   # DB 位于 /data/musicpl
 curl -o songs.csv "http://45.125.33.88:8080/api/export.csv?token=TOKEN"
 ```
 
-API Token：`d0689adf8786539510fc906531076ac7`（服务器 deploy/.env 内）。Navidrome：sakuranda / MusicPlayer2026。
+API Token：`YOUR_API_TOKEN`（服务器 deploy/.env 内）。Navidrome：sakuranda / YOUR_NAVIDROME_PASSWORD。
 
 ## 回归测试数据
 
@@ -117,6 +117,8 @@ API Token：`d0689adf8786539510fc906531076ac7`（服务器 deploy/.env 内）。
 - 2026-09-05 B站 DASH 直连文件仍可能是 moof 分片容器（Mutagen 时长为零），仅改后缀/写标签不能保证 iOS 连续播放；入库前无损 remux 为 faststart M4A、逐包哈希校验并原子替换，历史修复先备份。时长必须以实际音轨为准，不能保留多 P 视频总时长。
 
 - 2026-09-05 iOS后台媒体事件不能依赖React effect刷新队列/metadata；使用同步ref游标、稳定Media Session handler与音频事件同步状态，异常ended不跳歌、旧play Promise不得覆盖新曲。仅注册切歌和seekto，释放快进/快退按钮；曲库暂时刷新失败不可卸载PlayerProvider。
+
+- 2026-09-05 hmac.compare_digest 的 str 参数仅支持 ASCII，登录密码/验证码/签名/token 比较改用 UTF-8 bytes，避免恶意Unicode输入触发500；CSV导出对公式前缀加单引号，验证码缓存设上限；文档不再保存真实凭据（历史提交仍需另行轮换处理）。
 
 ## 维护规则
 

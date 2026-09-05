@@ -24,8 +24,8 @@ bilibili-research-report.md   B站 API 实测调研（media_id 公式、412 对�
 - 部署目录 `/opt/musicplayer`，数据 `/opt/musicplayer/data/`（musicplayer.db、music/、covers/、cookies/、navidrome/）
 - 容器：`musicplayer-api`、`musicplayer-navidrome`
 - 域名 `https://music.sakuranda.site`（系统级 Caddy `/etc/caddy/sites-enabled/` 反代 8080）
-- API Token：`d0689adf8786539510fc906531076ac7`（存于服务器 deploy/.env）
-- Navidrome 账号：sakuranda / MusicPlayer2026（http://45.125.33.88:4533）
+- API Token：`YOUR_API_TOKEN`（存于服务器 deploy/.env）
+- Navidrome 账号：sakuranda / YOUR_NAVIDROME_PASSWORD（http://45.125.33.88:4533）
 
 ## 关键事实（务必记住）
 
@@ -98,6 +98,8 @@ c.commit()"'
 - 2026-09-05 B站 DASH 直连文件仍可能是 moof 分片容器（Mutagen 时长为零），仅改后缀/写标签不能保证 iOS 连续播放；入库前无损 remux 为 faststart M4A、逐包哈希校验并原子替换，历史修复先备份。时长必须以实际音轨为准，不能保留多 P 视频总时长。
 
 - 2026-09-05 iOS后台媒体事件不能依赖React effect刷新队列/metadata；使用同步ref游标、稳定Media Session handler与音频事件同步状态，异常ended不跳歌、旧play Promise不得覆盖新曲。仅注册切歌和seekto，释放快进/快退按钮；曲库暂时刷新失败不可卸载PlayerProvider。
+
+- 2026-09-05 hmac.compare_digest 的 str 参数仅支持 ASCII，登录密码/验证码/签名/token 比较改用 UTF-8 bytes，避免恶意Unicode输入触发500；CSV导出对公式前缀加单引号，验证码缓存设上限；文档不再保存真实凭据（历史提交仍需另行轮换处理）。
 
 ## 验证清单（每次改动后）
 

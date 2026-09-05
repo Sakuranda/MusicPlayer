@@ -44,6 +44,15 @@ class AuthenticationTests(unittest.TestCase):
             self.assertTrue(auth.credentials_valid("owner", "secret"))
             self.assertFalse(auth.credentials_valid("owner", "wrong"))
 
+    def test_unicode_input_fails_cleanly_and_unicode_password_works(self):
+        with patch.multiple(auth, ADMIN_USERNAME="owner", ADMIN_PASSWORD="中文密码"):
+            self.assertTrue(auth.credentials_valid("owner", "中文密码"))
+            self.assertFalse(auth.credentials_valid("陌生用户", "错误密码"))
+        token, _ = auth.create_session("admin")
+        self.assertIsNone(auth.verify_session(token + "中文"))
+        challenge = auth.create_captcha()
+        self.assertFalse(auth.consume_captcha(challenge["id"], "你好世界"))
+
     def test_access_touch_is_throttled(self):
         self.assertTrue(auth.should_touch("session"))
         self.assertFalse(auth.should_touch("session"))
